@@ -35,9 +35,59 @@
   --amber-weak: #fbf3e0;
   --red: #d6483b;
   --red-weak: #fdeceb;
+  --red-border: #f3c9c4;
 
   --code-bg: #0f1623;
   --code-ink: #e6edf6;
+
+  --chat-user-bg: #eef4fb;
+  --chat-user-border: #c8d7eb;
+  --chat-assistant-bg: #f7f9fc;
+  --chat-assistant-border: #d4dbe6;
+  --chat-text: #344054;
+  --chat-assistant-text: #384253;
+  --chat-meta: #7c8aa0;
+  --chat-meta-strong: #1a2433;
+  --chat-assistant-meta: #66758a;
+  --chat-assistant-meta-strong: #344054;
+
+  --task-card-bg: #f7f9fc;
+  --task-card-border: #d4dbe6;
+  --task-card-heading: #1a2433;
+  --task-card-text: #66758a;
+  --task-card-chip-bg: #ffffff;
+  --task-card-chip-border: #d7deea;
+  --task-card-chip-text: #56657a;
+  --task-card-button-bg: #ffffff;
+  --task-card-button-bg-hover: #eef4fb;
+  --task-card-button-border: #c8d7eb;
+  --task-card-button-hover-text: #1a2433;
+  --task-card-inner-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+
+  --admin-surface: #ffffff;
+  --admin-surface-2: #f7f9fc;
+  --admin-surface-3: #eef3f8;
+  --admin-surface-hover: #f1f4f7;
+  --admin-surface-active: #e8f0ff;
+  --admin-border: #e2e7ee;
+  --admin-border-strong: #cfd7e2;
+  --admin-text: #1a2433;
+  --admin-soft: #46546a;
+  --admin-muted: #7c8aa0;
+  --admin-accent: #2f6df6;
+  --admin-badge-bg: #eef3f8;
+  --admin-icon-bg: #e8f0ff;
+  --admin-input-bg: #ffffff;
+  --admin-callout-bg: #f7f9fc;
+  --admin-callout-border: #d4dbe6;
+  --admin-status-bg: #eef3f8;
+  --admin-danger-border: #f2c7c2;
+  --admin-danger-bg: #fdeceb;
+  --admin-danger-text: #b42318;
+  --admin-warn-border: #ead7a5;
+  --admin-warn-bg: #fbf3e0;
+  --admin-warn-text: #946200;
+  --admin-active-shadow: inset 0 0 0 1px rgba(47, 109, 246, 0.12);
 
   --shadow-sm: 0 1px 2px rgba(20, 33, 51, 0.06);
   --shadow: 0 6px 20px rgba(20, 33, 51, 0.08);
@@ -76,9 +126,59 @@
   --amber-weak: #2a2417;
   --red: #f87171;
   --red-weak: #2a1717;
+  --red-border: #5a2626;
 
   --code-bg: #0a0e14;
   --code-ink: #d6deea;
+
+  --chat-user-bg: #1b2430;
+  --chat-user-border: #38475d;
+  --chat-assistant-bg: #221c18;
+  --chat-assistant-border: #4f3b2e;
+  --chat-text: #d7dde7;
+  --chat-assistant-text: #e7ddd2;
+  --chat-meta: #96a1b4;
+  --chat-meta-strong: #eef2f8;
+  --chat-assistant-meta: #b6a597;
+  --chat-assistant-meta-strong: #f2e8dc;
+
+  --task-card-bg: #1a1d24;
+  --task-card-border: color-mix(in srgb, var(--accent-border) 72%, var(--border) 28%);
+  --task-card-heading: #eef2f7;
+  --task-card-text: #aeb6c2;
+  --task-card-chip-bg: #20242d;
+  --task-card-chip-border: #353b47;
+  --task-card-chip-text: #c8ced8;
+  --task-card-button-bg: #241e1a;
+  --task-card-button-bg-hover: #302720;
+  --task-card-button-border: color-mix(in srgb, var(--accent-border) 76%, var(--border) 24%);
+  --task-card-button-hover-text: var(--text);
+  --task-card-inner-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+
+  --admin-surface: #20201e;
+  --admin-surface-2: #272724;
+  --admin-surface-3: #2a2521;
+  --admin-surface-hover: #2e2d2a;
+  --admin-surface-active: #332d28;
+  --admin-border: #433831;
+  --admin-border-strong: #5d5045;
+  --admin-text: #f2eee8;
+  --admin-soft: #d8cfc4;
+  --admin-muted: #a79c91;
+  --admin-accent: #d08b5b;
+  --admin-badge-bg: #3b3a35;
+  --admin-icon-bg: #312a25;
+  --admin-input-bg: #171715;
+  --admin-callout-bg: #2a2521;
+  --admin-callout-border: #433831;
+  --admin-status-bg: #31312d;
+  --admin-danger-border: #5c3428;
+  --admin-danger-bg: linear-gradient(180deg, #25201d, #201d1b);
+  --admin-danger-text: #f1b8a5;
+  --admin-warn-border: #4d4330;
+  --admin-warn-bg: linear-gradient(180deg, #24221d, #201f1c);
+  --admin-warn-text: #e4c07a;
+  --admin-active-shadow: inset 0 0 0 1px rgba(217, 119, 69, 0.12);
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
@@ -313,7 +413,7 @@ textarea {
 .form-error {
   color: var(--red);
   background: var(--red-weak);
-  border: 1px solid #f3c9c4;
+  border: 1px solid var(--red-border);
   border-radius: var(--radius);
   padding: 10px 12px;
   font-size: 13px;
@@ -891,18 +991,18 @@ textarea {
 }
 
 .message-row.user .message-card {
-  border-color: #c8d7eb;
-  background: #eef4fb;
+  border-color: var(--chat-user-border);
+  background: var(--chat-user-bg);
 }
 
 .message-row.assistant .message-card {
-  border-color: #dbc8b8;
-  background: #f6efe8;
+  border-color: var(--chat-assistant-border);
+  background: var(--chat-assistant-bg);
 }
 
 .message-card > p {
   margin: 6px 0 0;
-  color: #344054;
+  color: var(--chat-text);
   line-height: 1.65;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -910,67 +1010,33 @@ textarea {
 }
 
 .message-row.assistant .message-card > p {
-  color: #47372d;
+  color: var(--chat-assistant-text);
 }
 
 .message-meta {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  color: #7c8aa0;
+  color: var(--chat-meta);
   font-size: 12px;
 }
 
 .message-meta strong {
-  color: #1a2433;
+  color: var(--chat-meta-strong);
   font-size: 13px;
   font-weight: 600;
 }
 
 .message-row.assistant .message-meta {
-  color: #8f7768;
+  color: var(--chat-assistant-meta);
 }
 
 .message-row.assistant .message-meta strong {
-  color: #2f241d;
+  color: var(--chat-assistant-meta-strong);
 }
 
 .message-row.pending .message-card {
   border-style: dashed;
-}
-
-[data-theme="dark"] .message-row.user .message-card {
-  border-color: #38475d;
-  background: #1b2430;
-}
-
-[data-theme="dark"] .message-row.assistant .message-card {
-  border-color: #4f3b2e;
-  background: #221c18;
-}
-
-[data-theme="dark"] .message-card > p {
-  color: #d7dde7;
-}
-
-[data-theme="dark"] .message-row.assistant .message-card > p {
-  color: #e7ddd2;
-}
-
-[data-theme="dark"] .message-meta {
-  color: #96a1b4;
-}
-
-[data-theme="dark"] .message-meta strong {
-  color: #eef2f8;
-}
-
-[data-theme="dark"] .message-row.assistant .message-meta {
-  color: #b6a597;
-}
-
-[data-theme="dark"] .message-row.assistant .message-meta strong {
-  color: #f2e8dc;
 }
 
 /* ---------- 任务迷你卡 ---------- */
@@ -980,10 +1046,10 @@ textarea {
   gap: 9px;
   margin-top: 12px;
   padding: 12px;
-  border: 1px solid #d4dbe6;
+  border: 1px solid var(--task-card-border);
   border-radius: var(--radius);
-  background: #f7f9fc;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+  background: var(--task-card-bg);
+  box-shadow: var(--task-card-inner-shadow);
 }
 
 .task-mini-card > div:first-child {
@@ -1000,7 +1066,7 @@ textarea {
 .task-mini-card > div:first-child strong {
   font-size: 13px;
   font-weight: 600;
-  color: #eef2f7;
+  color: var(--task-card-heading);
 }
 
 .task-mini-stats {
@@ -1012,16 +1078,16 @@ textarea {
 .task-mini-stats span {
   border-radius: 999px;
   padding: 3px 8px;
-  color: #56657a;
-  background: #ffffff;
-  border: 1px solid #d7deea;
+  color: var(--task-card-chip-text);
+  background: var(--task-card-chip-bg);
+  border: 1px solid var(--task-card-chip-border);
   font-size: 11px;
   font-weight: 500;
 }
 
 .task-mini-card p {
   margin: 0;
-  color: #66758a;
+  color: var(--task-card-text);
   font-size: 12px;
 }
 
@@ -1030,45 +1096,19 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid #c7b29f;
+  border: 1px solid var(--task-card-button-border);
   border-radius: var(--radius-sm);
   padding: 6px 11px;
   color: var(--accent-ink);
-  background: #fff8f2;
+  background: var(--task-card-button-bg);
   font-weight: 600;
   font-size: 12px;
   transition: background 0.12s;
 }
 
 .task-mini-card button:hover {
-  background: #f5ece3;
-  color: #2f241d;
-}
-
-[data-theme="dark"] .task-mini-card {
-  border-color: color-mix(in srgb, var(--accent-border) 72%, var(--border) 28%);
-  background: #1a1d24;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
-}
-
-[data-theme="dark"] .task-mini-stats span {
-  color: #c8ced8;
-  background: #20242d;
-  border-color: #353b47;
-}
-
-[data-theme="dark"] .task-mini-card p {
-  color: #aeb6c2;
-}
-
-[data-theme="dark"] .task-mini-card button {
-  border-color: color-mix(in srgb, var(--accent-border) 76%, var(--border) 24%);
-  background: #241e1a;
-}
-
-[data-theme="dark"] .task-mini-card button:hover {
-  background: #302720;
-  color: var(--text);
+  background: var(--task-card-button-bg-hover);
+  color: var(--task-card-button-hover-text);
 }
 
 /* ---------- 输入区 / composer ---------- */
@@ -1090,77 +1130,15 @@ textarea {
   background: transparent;
 }
 
-.sql-panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 9px 14px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface-2);
-}
-
-.sql-panel-head span {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.sql-panel-head strong {
-  display: block;
-  margin-top: 1px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.sql-panel-head em {
-  color: var(--accent-ink);
-  font-style: normal;
-  font-weight: 600;
-  background: var(--accent-weak);
-  padding: 4px 9px;
-  border-radius: 999px;
-  font-size: 11px;
-}
-
-.sql-panel-controls {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.sql-panel-controls select {
-  height: 28px;
-  min-width: 118px;
-  border: 1px solid var(--border-strong);
-  border-radius: 7px;
-  background: var(--surface);
-  color: var(--text);
-  padding: 0 9px;
-  font-size: 12px;
-  font-weight: 600;
-  outline: none;
-}
-
-.sql-panel-controls select:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-weak);
-}
-
 .sql-input-panel > textarea,
 .sql-input-panel.compact > textarea {
   width: 100%;
-  min-height: 96px;
-  max-height: 280px;
+  min-height: 78px;
+  max-height: 180px;
   border: 0;
   resize: vertical;
   outline: none;
-  padding: 14px;
+  padding: 13px 14px;
   background: var(--surface);
   color: var(--text);
   font-size: 14px;
@@ -1175,9 +1153,45 @@ textarea {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
+  flex-wrap: wrap;
+  padding: 9px 12px;
   border-top: 1px solid var(--border);
   background: var(--surface-2);
+}
+
+.input-options {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 4px;
+}
+
+.input-options select {
+  height: 32px;
+  min-width: 118px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  padding: 0 9px;
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+}
+
+.input-options select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-weak);
+}
+
+.input-options span {
+  flex: 0 0 auto;
+  color: var(--accent-ink);
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--accent-weak);
+  padding: 6px 10px;
+  border-radius: 999px;
 }
 
 .input-meter {
@@ -1212,14 +1226,6 @@ textarea {
 
 .context-grid textarea {
   min-height: 80px;
-}
-
-.input-hint {
-  margin: 0;
-  padding: 8px 14px 10px;
-  background: var(--surface-2);
-  color: var(--faint);
-  font-size: 11px;
 }
 
 /* ============================================================
@@ -1930,21 +1936,21 @@ textarea {
 .skill-admin-page .admin-list {
   gap: 10px;
   padding: 14px;
-  border: 1px solid var(--claude-line);
+  border: 1px solid var(--admin-border);
   border-radius: 16px;
-  background: #20201e;
+  background: var(--admin-surface);
 }
 
 .skill-list-summary {
   padding: 14px 14px 16px;
-  border: 1px solid #433831;
+  border: 1px solid var(--admin-callout-border);
   border-radius: 14px;
-  background: linear-gradient(180deg, #2a2521, #221f1c);
+  background: var(--admin-callout-bg);
 }
 
 .skill-list-summary strong {
   display: block;
-  color: var(--claude-text);
+  color: var(--admin-text);
   font-size: 28px;
   line-height: 1;
 }
@@ -1952,14 +1958,14 @@ textarea {
 .skill-list-summary > span {
   display: block;
   margin-top: 6px;
-  color: var(--claude-accent);
+  color: var(--admin-accent);
   font-size: 12px;
   font-weight: 700;
 }
 
 .skill-list-summary p {
   margin: 12px 0 0;
-  color: var(--claude-muted);
+  color: var(--admin-muted);
   font-size: 13px;
   line-height: 1.65;
 }
@@ -1968,19 +1974,19 @@ textarea {
   display: grid;
   gap: 8px;
   padding: 14px;
-  border: 1px solid var(--claude-line);
+  border: 1px solid var(--admin-border);
   border-radius: 14px;
-  background: #272724;
+  background: var(--admin-surface-2);
 }
 
 .skill-admin-page .admin-list button:hover {
-  background: #2e2d2a;
+  background: var(--admin-surface-hover);
 }
 
 .skill-admin-page .admin-list button.active {
-  border-color: #5d5045;
-  background: #332d28;
-  box-shadow: inset 0 0 0 1px rgba(217, 119, 69, 0.12);
+  border-color: var(--admin-border-strong);
+  background: var(--admin-surface-active);
+  box-shadow: var(--admin-active-shadow);
 }
 
 .skill-list-head {
@@ -1991,7 +1997,7 @@ textarea {
 }
 
 .skill-list-head strong {
-  color: var(--claude-text);
+  color: var(--admin-text);
   font-size: 14px;
   line-height: 1.45;
   overflow-wrap: anywhere;
@@ -2000,8 +2006,8 @@ textarea {
 .skill-list-head span {
   border-radius: 999px;
   padding: 3px 8px;
-  color: var(--claude-soft);
-  background: #3b3a35;
+  color: var(--admin-soft);
+  background: var(--admin-badge-bg);
   font-size: 11px;
 }
 
@@ -2009,15 +2015,15 @@ textarea {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  color: var(--claude-muted);
+  color: var(--admin-muted);
   font-size: 12px;
 }
 
 .skill-admin-page .editor-panel {
   padding: 18px;
-  border: 1px solid var(--claude-line);
+  border: 1px solid var(--admin-border);
   border-radius: 16px;
-  background: #20201e;
+  background: var(--admin-surface);
 }
 
 .skill-editor-head {
@@ -2026,7 +2032,7 @@ textarea {
   justify-content: space-between;
   gap: 14px;
   padding-bottom: 14px;
-  border-bottom: 1px solid var(--claude-line);
+  border-bottom: 1px solid var(--admin-border);
 }
 
 .skill-editor-title {
@@ -2041,19 +2047,19 @@ textarea {
   display: grid;
   place-items: center;
   border-radius: 12px;
-  color: var(--claude-accent);
-  background: #312a25;
+  color: var(--admin-accent);
+  background: var(--admin-icon-bg);
 }
 
 .skill-editor-title strong {
   display: block;
-  color: var(--claude-text);
+  color: var(--admin-text);
   font-size: 16px;
 }
 
 .skill-editor-title span,
 .skill-editor-status span {
-  color: var(--claude-muted);
+  color: var(--admin-muted);
   font-size: 12px;
 }
 
@@ -2066,7 +2072,7 @@ textarea {
 .skill-editor-status span {
   border-radius: 999px;
   padding: 4px 9px;
-  background: #31312d;
+  background: var(--admin-status-bg);
 }
 
 .skill-editor-callout {
@@ -2075,17 +2081,17 @@ textarea {
   align-items: flex-start;
   margin-top: 14px;
   padding: 12px 14px;
-  border: 1px solid #433831;
+  border: 1px solid var(--admin-callout-border);
   border-radius: 14px;
-  background: #2a2521;
-  color: var(--claude-soft);
+  background: var(--admin-callout-bg);
+  color: var(--admin-soft);
   font-size: 13px;
   line-height: 1.6;
 }
 
 .skill-editor-callout svg {
   flex: 0 0 auto;
-  color: var(--claude-accent);
+  color: var(--admin-accent);
 }
 
 .skill-admin-page .editor-panel textarea {
@@ -2093,9 +2099,9 @@ textarea {
   margin-top: 14px;
   padding: 18px;
   border-radius: 14px;
-  border-color: var(--claude-line);
-  background: #171715;
-  color: var(--claude-text);
+  border-color: var(--admin-border);
+  background: var(--admin-input-bg);
+  color: var(--admin-text);
   width: 100%;
   line-height: 1.68;
 }
@@ -2103,11 +2109,11 @@ textarea {
 .skill-admin-page .editor-actions {
   margin-top: 14px;
   padding-top: 14px;
-  border-top: 1px solid var(--claude-line);
+  border-top: 1px solid var(--admin-border);
 }
 
 .skill-admin-page .editor-actions > span {
-  color: var(--claude-muted);
+  color: var(--admin-muted);
   font-size: 12px;
 }
 
@@ -2120,14 +2126,14 @@ textarea {
 
 .rule-admin-page .rule-overview article {
   padding: 16px;
-  border: 1px solid var(--claude-line);
+  border: 1px solid var(--admin-border);
   border-radius: 16px;
-  background: #20201e;
+  background: var(--admin-surface);
 }
 
 .rule-admin-page .rule-overview strong {
   display: block;
-  color: var(--claude-text);
+  color: var(--admin-text);
   font-size: 28px;
   line-height: 1;
 }
@@ -2135,7 +2141,7 @@ textarea {
 .rule-admin-page .rule-overview span {
   display: block;
   margin-top: 8px;
-  color: var(--claude-muted);
+  color: var(--admin-muted);
   font-size: 12px;
 }
 
@@ -2148,18 +2154,18 @@ textarea {
 
 .rule-grid article {
   padding: 16px;
-  border: 1px solid var(--claude-line);
+  border: 1px solid var(--admin-border);
   border-radius: 16px;
-  background: #20201e;
+  background: var(--admin-surface);
 }
 
 .rule-grid svg {
-  color: var(--claude-accent);
+  color: var(--admin-accent);
 }
 
 .rule-grid span {
   display: block;
-  color: var(--claude-muted);
+  color: var(--admin-muted);
   font-size: 11px;
   margin-top: 8px;
   text-transform: uppercase;
@@ -2168,18 +2174,18 @@ textarea {
 
 .rule-grid h3 {
   margin-top: 10px;
-  color: var(--claude-text);
+  color: var(--admin-text);
 }
 
 .rule-grid p {
   margin-top: 10px;
-  color: var(--claude-soft);
+  color: var(--admin-soft);
 }
 
 .rule-grid small {
   display: block;
   margin-top: 10px;
-  color: var(--claude-muted);
+  color: var(--admin-muted);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -2189,31 +2195,31 @@ textarea {
   margin-top: 12px;
   padding: 3px 9px;
   border-radius: 999px;
-  background: #312a25;
-  color: var(--claude-soft);
+  background: var(--admin-icon-bg);
+  color: var(--admin-soft);
   font-size: 11px;
 }
 
 .rule-card.severity-high {
-  border-color: #5c3428;
-  background: linear-gradient(180deg, #25201d, #201d1b);
+  border-color: var(--admin-danger-border);
+  background: var(--admin-danger-bg);
 }
 
 .rule-card.severity-high span {
-  color: #f1b8a5;
+  color: var(--admin-danger-text);
 }
 
 .rule-card.severity-warn {
-  border-color: #4d4330;
-  background: linear-gradient(180deg, #24221d, #201f1c);
+  border-color: var(--admin-warn-border);
+  background: var(--admin-warn-bg);
 }
 
 .rule-card.severity-warn span {
-  color: #e4c07a;
+  color: var(--admin-warn-text);
 }
 
 .rule-card.severity-info {
-  border-color: var(--claude-line);
+  border-color: var(--admin-border);
 }
 
 /* ---------- 模型配置 ---------- */
@@ -2557,6 +2563,14 @@ textarea {
 
   .conversation-stream {
     padding: 14px;
+  }
+
+  .input-options {
+    margin-left: 0;
+  }
+
+  .input-options select {
+    flex: 1 1 140px;
   }
 
   .message-row,

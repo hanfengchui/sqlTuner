@@ -76,19 +76,6 @@ export function SqlInputPanel({ loading, onSubmit, compact = false }: SqlInputPa
 
   return (
     <section className={compact ? "sql-input-panel compact" : "sql-input-panel"}>
-      <div className="sql-panel-head">
-        <div>
-          <span>Prompt</span>
-          <strong>写下 SQL 或补充信息</strong>
-        </div>
-        <div className="sql-panel-controls">
-          <select value={value.dbDialect} onChange={(event) => update("dbDialect", event.target.value as SqlDialect)} aria-label="数据库方言">
-            <option value="OceanBase MySQL">OB MySQL</option>
-            <option value="OceanBase Oracle">OB Oracle</option>
-          </select>
-          <em>{detectedType === "sql" ? "SQL 模式" : "自然语言"}</em>
-        </div>
-      </div>
       <textarea
         value={value.sqlText}
         onChange={(event) => update("sqlText", event.target.value)}
@@ -107,6 +94,13 @@ export function SqlInputPanel({ loading, onSubmit, compact = false }: SqlInputPa
           上下文 {contextOpen ? "收起" : "补充"}
         </button>
         <span className="input-meter">{value.sqlText.trim().length} chars</span>
+        <div className="input-options">
+          <select value={value.dbDialect} onChange={(event) => update("dbDialect", event.target.value as SqlDialect)} aria-label="数据库方言">
+            <option value="OceanBase MySQL">OB MySQL</option>
+            <option value="OceanBase Oracle">OB Oracle</option>
+          </select>
+          <span>{detectedType === "sql" ? "SQL 模式" : "自然语言"}</span>
+        </div>
         <button className="send-button" disabled={loading || !value.sqlText.trim()} onClick={submit} title="发送">
           <Send size={18} />
         </button>
@@ -143,7 +137,6 @@ export function SqlInputPanel({ loading, onSubmit, compact = false }: SqlInputPa
           </label>
         </div>
       )}
-      <p className="input-hint">Enter 发送 · Shift + Enter 换行 · 支持 SQL 和自然语言 · 本次输入来源会进入报告</p>
     </section>
   );
 }
