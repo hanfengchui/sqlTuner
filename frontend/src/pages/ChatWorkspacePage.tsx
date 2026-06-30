@@ -130,28 +130,6 @@ export function ChatWorkspacePage({ activeConversationId, activeTask, onTaskCrea
 
   return (
     <div className={inspectorTaskId ? "workspace workbench chat-inspector-open" : "workspace workbench"}>
-      <section className="workspace-hero workbench-hero">
-        <div>
-          <span className="eyebrow">SQL Tuning Copilot</span>
-          <h1>今天要分析哪条慢 SQL？</h1>
-          <p>贴 SQL、EXPLAIN、表结构，或先描述现象。报告会在右侧打开，聊天不中断。</p>
-        </div>
-        <div className="hero-metrics">
-          <article>
-            <strong>{messages.length}</strong>
-            <span>会话消息</span>
-          </article>
-          <article>
-            <strong>{Object.keys(tasksById).length}</strong>
-            <span>调优轮次</span>
-          </article>
-          <article>
-            <strong>{task?.status || "READY"}</strong>
-            <span>最近状态</span>
-          </article>
-        </div>
-      </section>
-
       <div className="chat-workbench-grid">
         <div className="chat-column">
           <ConversationStream
