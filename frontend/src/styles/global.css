@@ -1071,10 +1071,12 @@ textarea {
 /* ---------- 任务迷你卡 ---------- */
 
 .task-mini-card {
-  display: grid;
-  gap: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-top: 8px;
-  padding: 9px 10px;
+  padding: 8px 10px;
   border: 1px solid var(--task-card-border);
   border-radius: var(--radius);
   background: var(--task-card-bg);
@@ -1085,6 +1087,7 @@ textarea {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .task-mini-card svg {
@@ -1098,31 +1101,8 @@ textarea {
   color: var(--task-card-heading);
 }
 
-.task-mini-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-
-.task-mini-stats span {
-  border-radius: 999px;
-  padding: 2px 7px;
-  color: var(--task-card-chip-text);
-  background: var(--task-card-chip-bg);
-  border: 1px solid var(--task-card-chip-border);
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.task-mini-card p {
-  margin: 0;
-  color: var(--task-card-text);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
 .task-mini-card button {
-  justify-self: start;
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 6px;

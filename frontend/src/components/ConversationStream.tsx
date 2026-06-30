@@ -83,21 +83,12 @@ function ConversationBubble({ message, task, onInspectTask }: { message: Message
 }
 
 function TaskMiniCard({ task, onInspectTask }: { task: SqlTuningTask; onInspectTask: (taskId: number) => void }) {
-  const result = task.result;
   return (
     <div className="task-mini-card">
       <div>
         <FileSearch size={16} />
         <strong>{task.status === "DONE" ? "SQL 调优报告已生成" : task.statusMessage}</strong>
       </div>
-      <div className="task-mini-stats">
-        <span>{task.dbDialect?.replace("OceanBase ", "OB ") || "OB MySQL"}</span>
-        <span>{task.inputType === "natural_language" ? "自然语言" : "SQL"}</span>
-        <span>{task.ruleFindings.length} 条规则</span>
-        <span>{result?.indexSuggestions.length || 0} 个索引建议</span>
-        <span>{result?.mockModel ? "mock" : result ? "real" : "分析中"}</span>
-      </div>
-      {result?.needMoreInfo.length ? <p>待补充：{result.needMoreInfo.slice(0, 3).join("、")}</p> : null}
       <button onClick={() => onInspectTask(task.id)}>打开右侧报告</button>
     </div>
   );
