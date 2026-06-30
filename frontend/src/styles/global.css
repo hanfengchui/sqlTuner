@@ -40,11 +40,11 @@
   --code-bg: #0f1623;
   --code-ink: #e6edf6;
 
-  --chat-user-bg: #eef4fb;
-  --chat-user-border: #c8d7eb;
-  --chat-assistant-bg: #f7f9fc;
-  --chat-assistant-border: #d4dbe6;
-  --chat-text: #344054;
+  --chat-user-bg: #e7f0ff;
+  --chat-user-border: #9dbcf7;
+  --chat-assistant-bg: #ffffff;
+  --chat-assistant-border: #d8e0eb;
+  --chat-text: #243b5a;
   --chat-assistant-text: #384253;
   --chat-meta: #7c8aa0;
   --chat-meta-strong: #1a2433;
@@ -935,9 +935,11 @@ textarea {
 }
 
 .conversation-stream {
-  display: grid;
-  gap: 18px;
-  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  padding: 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
 }
@@ -946,13 +948,13 @@ textarea {
 
 .message-row {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 9px;
   align-items: flex-start;
 }
 
 .message-row.user {
-  grid-template-columns: minmax(0, 1fr) 30px;
+  grid-template-columns: minmax(0, 1fr) 28px;
 }
 
 .message-row.user .message-avatar {
@@ -967,8 +969,8 @@ textarea {
 }
 
 .message-avatar {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   border-radius: var(--radius-sm);
@@ -986,11 +988,16 @@ textarea {
   width: min(820px, 100%);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 12px 14px;
+  padding: 9px 12px;
   background: var(--surface);
 }
 
 .message-row.user .message-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: auto;
+  max-width: min(820px, 90%);
   border-color: var(--chat-user-border);
   background: var(--chat-user-bg);
 }
@@ -1001,16 +1008,38 @@ textarea {
 }
 
 .message-card > p {
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   color: var(--chat-text);
-  line-height: 1.65;
+  line-height: 1.48;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .message-row.assistant .message-card > p {
   color: var(--chat-assistant-text);
+}
+
+.message-row.user .message-meta {
+  display: contents;
+}
+
+.message-row.user .message-meta strong {
+  flex: 0 0 auto;
+  order: 1;
+}
+
+.message-row.user .message-card > p {
+  order: 2;
+  min-width: 0;
+  margin: 0;
+  line-height: 1.35;
+}
+
+.message-row.user .message-meta span {
+  flex: 0 0 auto;
+  order: 3;
+  margin-left: 6px;
 }
 
 .message-meta {
@@ -1043,9 +1072,9 @@ textarea {
 
 .task-mini-card {
   display: grid;
-  gap: 9px;
-  margin-top: 12px;
-  padding: 12px;
+  gap: 7px;
+  margin-top: 8px;
+  padding: 9px 10px;
   border: 1px solid var(--task-card-border);
   border-radius: var(--radius);
   background: var(--task-card-bg);
@@ -1072,12 +1101,12 @@ textarea {
 .task-mini-stats {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 5px;
 }
 
 .task-mini-stats span {
   border-radius: 999px;
-  padding: 3px 8px;
+  padding: 2px 7px;
   color: var(--task-card-chip-text);
   background: var(--task-card-chip-bg);
   border: 1px solid var(--task-card-chip-border);
@@ -1089,6 +1118,7 @@ textarea {
   margin: 0;
   color: var(--task-card-text);
   font-size: 12px;
+  line-height: 1.45;
 }
 
 .task-mini-card button {
@@ -1098,7 +1128,7 @@ textarea {
   gap: 6px;
   border: 1px solid var(--task-card-button-border);
   border-radius: var(--radius-sm);
-  padding: 6px 11px;
+  padding: 5px 9px;
   color: var(--accent-ink);
   background: var(--task-card-button-bg);
   font-weight: 600;
