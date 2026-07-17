@@ -28,4 +28,4 @@ USER sqltuner
 EXPOSE 8080
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=4 \
     CMD curl --fail --silent --show-error http://127.0.0.1:8080/api/health/ready >/dev/null || exit 1
-ENTRYPOINT ["java", "-XX:+UseContainerSupport", "-XX:MaxRAMPercentage=75", "-Djava.io.tmpdir=/tmp", "-jar", "/app/sql-tuner.jar"]
+ENTRYPOINT ["java", "-XX:+UseContainerSupport", "-XX:MaxRAMPercentage=75.0", "-Djava.io.tmpdir=/tmp", "-jar", "/app/sql-tuner.jar"]
