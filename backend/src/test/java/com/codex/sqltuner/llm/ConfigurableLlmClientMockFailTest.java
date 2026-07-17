@@ -86,5 +86,22 @@ class ConfigurableLlmClientMockFailTest {
         assertThat(content.get(0).path("text").asText()).isEqualTo("extract plan");
         assertThat(content.get(1).path("type").asText()).isEqualTo("image_url");
         assertThat(content.get(1).path("image_url").path("url").asText()).startsWith("data:image/png;base64,");
+        assertThat(body.has("response_format")).isFalse();
+    }
+
+    @Test
+    void textRequestEnablesOpenAiCompatibleJsonObjectMode() {
+        LlmProperties properties = new LlmProperties();
+        properties.setProvider("dashscope");
+        properties.setModel("qwen3.7-max");
+        ConfigurableLlmClient client = new ConfigurableLlmClient(properties, objectMapper);
+
+        JsonNode body = client.buildChatRequestBody(new LlmRequest(
+                "只返回严格 JSON 对象。",
+                "请生成 SQL 诊断 JSON。",
+                true));
+
+        assertThat(body.path("response_format").path("type").asText()).isEqualTo("json_object");
+        assertThat(body.path("temperature").asDouble()).isEqualTo(0.2d);
     }
 }

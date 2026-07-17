@@ -19,7 +19,9 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Repository
 public class TuningTaskRepository {
@@ -101,6 +103,7 @@ public class TuningTaskRepository {
         if (tasks.isEmpty()) {
             throw new NotFoundException("调优任务不存在");
         }
+        hydrateArtifacts(tasks);
         return tasks.get(0);
     }
 
@@ -109,6 +112,7 @@ public class TuningTaskRepository {
         if (tasks.isEmpty()) {
             throw new NotFoundException("调优任务不存在");
         }
+        hydrateArtifacts(tasks);
         return tasks.get(0);
     }
 
@@ -119,6 +123,7 @@ public class TuningTaskRepository {
         List<SqlTuningTask> tasks = jdbcTemplate.query(
                 "SELECT * FROM tuning_tasks WHERE user_id = ? AND idempotency_key = ?",
                 mapper(), userId, idempotencyKey.trim());
+        hydrateArtifacts(tasks);
         return tasks.isEmpty() ? null : tasks.get(0);
     }
 
@@ -290,6 +295,47 @@ public class TuningTaskRepository {
                     artifact.getSummary(),
                     artifact.getPayload() == null ? null : jsonSupport.write(artifact.getPayload()),
                     toTimestamp(artifact.getCreatedAt() == null ? task.getUpdatedAt() : artifact.getCreatedAt()));
+        }
+    }
+
+    public void appendArtifact(Long taskId, HarnessArtifact artifact) {
+        jdbcTemplate.update(
+                "INSERT INTO task_artifacts(task_id, node_name, summary, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+                taskId,
+                artifact.getNodeName(),
+                artifact.getSummary(),
+                artifact.getPayload() == null ? null : jsonSupport.write(artifact.getPayload()),
+                toTimestamp(artifact.getCreatedAt() == null ? LocalDateTime.now() : artifact.getCreatedAt()));
+    }
+
+    private void hydrateArtifacts(List<SqlTuningTask> tasks) {
+        for (SqlTuningTask task : tasks) {
+            List<HarnessArtifact> artifacts = jdbcTemplate.query(
+                    "SELECT node_name, summary, payload_json, created_at FROM task_artifacts WHERE task_id = ? ORDER BY id",
+                    new RowMapper<HarnessArtifact>() {
+                        @Override
+                        public HarnessArtifact mapRow(ResultSet rs, int rowNum) throws java.sql.SQLException {
+                            Object payload = null;
+                            String payloadJson = rs.getString("payload_json");
+                            if (payloadJson != null) {
+                                payload = jsonSupport.read(payloadJson, Object.class);
+                                // 旧 JSON 迁移曾把完整 HarnessArtifact 写进 payload_json；读取时兼容解包。
+                                if (payload instanceof Map) {
+                                    Map<?, ?> object = (Map<?, ?>) payload;
+                                    if (object.containsKey("nodeName") && object.containsKey("summary") && object.containsKey("payload")) {
+                                        payload = object.get("payload");
+                                    }
+                                }
+                            }
+                            return new HarnessArtifact(
+                                    rs.getString("node_name"),
+                                    rs.getString("summary"),
+                                    payload,
+                                    toLocalDateTime(rs.getTimestamp("created_at")));
+                        }
+                    },
+                    task.getId());
+            task.setArtifacts(artifacts == null ? new ArrayList<HarnessArtifact>() : artifacts);
         }
     }
 

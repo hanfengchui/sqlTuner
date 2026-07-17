@@ -85,9 +85,20 @@ public class PromptCompiler {
     }
 
     public String reviewPrompt(TuningResult result) {
-        return "请作为独立审查器复核以下 JSON。只返回完整 JSON，review.verdict 必须为 PASS、REVISE 或 REJECT。"
-                + "如果 REVISE，必须返回完整修正版结果；如果 REJECT，outcome=NEEDS_INPUT 并说明缺失证据。\n"
-                + result.getRawModelOutput();
+        return "请作为独立审查器复核以下已通过第一轮后端结构校验的 JSON。只返回一个 JSON 对象，禁止 Markdown、代码围栏和解释文字。\n"
+                + "审查响应采用以下包络：\n"
+                + "PASS: {\"verdict\":\"PASS\",\"notes\":\"审查说明\",\"revisions\":[]}\n"
+                + "REVISE: {\"verdict\":\"REVISE\",\"notes\":\"修正说明\",\"revisions\":[\"修正点\"],\"revisedResult\":{完整修正版结果}}\n"
+                + "REJECT: {\"verdict\":\"REJECT\",\"notes\":\"拒绝原因\",\"revisions\":[\"缺失证据\"],\"revisedResult\":{完整结果且 outcome 必须为 NEEDS_INPUT}}\n"
+                + "PASS 不得重复输出原结果；REVISE/REJECT 必须给出 revisedResult，且 revisedResult 必须包含首轮结果要求的全部字段。\n"
+                + "待审查结果:\n" + result.getRawModelOutput();
+    }
+
+    public String reviewRepairPrompt(String badOutput, String errors) {
+        return "上一次深度复核响应未通过后端校验。只返回一个修复后的 JSON 包络，禁止 Markdown、代码围栏和解释文字。\n"
+                + "verdict 只能为 PASS、REVISE、REJECT；notes 必须为字符串；revisions 必须为字符串数组。"
+                + "PASS 不带 revisedResult；REVISE/REJECT 必须带完整 revisedResult；REJECT 的 revisedResult.outcome 必须为 NEEDS_INPUT。\n"
+                + "校验错误:\n" + errors + "\n上一次复核响应:\n" + abbreviate(badOutput, 12000);
     }
 
     private String emptyToPlaceholder(String value) {

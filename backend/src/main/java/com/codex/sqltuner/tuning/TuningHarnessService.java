@@ -308,7 +308,7 @@ public class TuningHarnessService {
             LlmResponse reviewResponse = llmClient.analyze(new LlmRequest(systemPrompt, promptCompiler.reviewPrompt(result), true));
             addArtifact(task, "llmReview", "深度分析复核完成", reviewResponse);
             TuningResult reviewed = parseValidateReviewAndRepairOnce(
-                    task, reviewResponse, context, profile, dialect, systemPrompt);
+                    task, result, reviewResponse, context, profile, dialect, systemPrompt);
             String reviewVerdict = reviewed.getReview().getVerdict().trim().toUpperCase(Locale.ROOT);
             if ("REJECT".equals(reviewVerdict) && !"NEEDS_INPUT".equals(reviewed.getOutcome())) {
                 throw new IllegalStateException("深度复核 REJECT 必须返回 outcome=NEEDS_INPUT");
@@ -346,6 +346,7 @@ public class TuningHarnessService {
         HarnessArtifact artifact = new HarnessArtifact(nodeName, summary, payload, LocalDateTime.now());
         task.getArtifacts().add(artifact);
         if (task.getId() != null) {
+            taskRepository.appendArtifact(task.getId(), artifact);
             eventBroker.publishArtifact(task, artifact);
         }
     }
@@ -549,6 +550,7 @@ public class TuningHarnessService {
     }
 
     private TuningResult parseValidateReviewAndRepairOnce(SqlTuningTask task,
+                                                          TuningResult original,
                                                           LlmResponse response,
                                                           ContextPackage context,
                                                           SqlStatementProfile profile,
@@ -556,7 +558,7 @@ public class TuningHarnessService {
                                                           String systemPrompt) {
         String errors;
         try {
-            TuningResult reviewed = parseStrictResult(response, context);
+            TuningResult reviewed = parseReviewResponse(response, original, context);
             errors = reviewErrors(reviewed, context, profile, dialect);
             if (!hasText(errors)) {
                 return reviewed;
@@ -568,12 +570,12 @@ public class TuningHarnessService {
         addArtifact(task, "reviewValidateFailed", "深度复核输出未通过严格校验，执行一次修复", errors);
         LlmResponse repaired = llmClient.analyze(new LlmRequest(
                 systemPrompt,
-                promptCompiler.repairPrompt(response.getContent(), errors),
+                promptCompiler.reviewRepairPrompt(response.getContent(), errors),
                 true));
         addArtifact(task, "llmReviewRepair", "深度复核 JSON 修复调用完成", repaired);
         final TuningResult reviewed;
         try {
-            reviewed = parseStrictResult(repaired, context);
+            reviewed = parseReviewResponse(repaired, original, context);
         } catch (ModelOutputFormatException e) {
             throw new IllegalStateException("深度复核修复输出不是合法 JSON", e);
         }
@@ -582,6 +584,62 @@ public class TuningHarnessService {
             throw new IllegalStateException("深度复核修复输出未通过严格校验: " + repairedErrors);
         }
         return reviewed;
+    }
+
+    private TuningResult parseReviewResponse(LlmResponse response,
+                                             TuningResult original,
+                                             ContextPackage context) {
+        String json = stripSingleJsonFence(response.getContent());
+        final JsonNode root;
+        try {
+            root = objectMapper.readTree(json);
+            if (root == null || !root.isObject()) {
+                throw new IllegalArgumentException("深度复核根节点必须是 JSON 对象");
+            }
+            if (!root.has("verdict")) {
+                // 兼容一版旧审查器：旧协议直接返回带 review 字段的完整 TuningResult。
+                return parseStrictResult(response, context);
+            }
+
+            requireText(root, "verdict", "reviewEnvelope");
+            requireText(root, "notes", "reviewEnvelope");
+            requireStringArray(root, "revisions", "reviewEnvelope");
+            String verdict = root.get("verdict").asText().trim().toUpperCase(Locale.ROOT);
+            if (!"PASS".equals(verdict) && !"REVISE".equals(verdict) && !"REJECT".equals(verdict)) {
+                throw new IllegalArgumentException("深度复核 verdict 必须为 PASS、REVISE 或 REJECT");
+            }
+
+            ReviewResult review = new ReviewResult();
+            review.setVerdict(verdict);
+            review.setNotes(root.get("notes").asText());
+            List<String> revisions = new ArrayList<String>();
+            for (JsonNode revision : root.get("revisions")) {
+                revisions.add(revision.asText());
+            }
+            review.setRevisions(revisions);
+
+            if ("PASS".equals(verdict)) {
+                original.setReview(review);
+                return original;
+            }
+
+            JsonNode revisedResult = requireObject(root, "revisedResult", "reviewEnvelope");
+            LlmResponse revisedResponse = new LlmResponse(
+                    response.getProvider(),
+                    response.getModel(),
+                    objectMapper.writeValueAsString(revisedResult),
+                    response.getElapsedMs(),
+                    response.isMock());
+            TuningResult revised = parseStrictResult(revisedResponse, context);
+            revised.setReview(review);
+            return revised;
+        } catch (ModelOutputFormatException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("parseReviewResponse result 结果: 深度复核输出不是严格 JSON 包络, errorType: {}",
+                    e.getClass().getSimpleName());
+            throw new ModelOutputFormatException("深度复核输出不是合法 JSON 包络", e);
+        }
     }
 
     private String reviewErrors(TuningResult reviewed,

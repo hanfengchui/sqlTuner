@@ -270,6 +270,65 @@ class TuningHarnessServiceTest {
     }
 
     @Test
+    void deepReviewPassUsesCompactEnvelopeWithoutRepeatingFullResult() {
+        String passEnvelope = "{\"verdict\":\"PASS\",\"notes\":\"证据引用和建议边界均通过\",\"revisions\":[]}";
+        RecordingLlmClient client = new RecordingLlmClient(mockContent(), passEnvelope);
+        TuningHarnessService service = service(client);
+        CreateTuningTaskRequest request = sqlOnlyRequest();
+        request.setDeepAnalysis(Boolean.TRUE);
+
+        SqlTuningTask task = service.createTask(1L, request);
+        service.run(task);
+
+        assertThat(client.callCount()).isEqualTo(2);
+        assertThat(task.getStatus()).isEqualTo(TaskStatus.DONE);
+        assertThat(task.getResult().getReview().getVerdict()).isEqualTo("PASS");
+        assertThat(task.getResult().getReview().getNotes()).contains("证据引用");
+        assertThat(task.getResult().getReview().getRevisions()).isEmpty();
+    }
+
+    @Test
+    void deepReviewReviseRequiresAndUsesCompleteRevisedResult() throws Exception {
+        com.fasterxml.jackson.databind.node.ObjectNode revised =
+                (com.fasterxml.jackson.databind.node.ObjectNode) objectMapper.readTree(mockContent());
+        revised.put("summary", "独立审查器给出的完整修正版结果");
+        com.fasterxml.jackson.databind.node.ObjectNode envelope = objectMapper.createObjectNode();
+        envelope.put("verdict", "REVISE");
+        envelope.put("notes", "收紧结论措辞");
+        envelope.putArray("revisions").add("降低未经验证结论的确定性");
+        envelope.set("revisedResult", revised);
+        RecordingLlmClient client = new RecordingLlmClient(mockContent(), objectMapper.writeValueAsString(envelope));
+        TuningHarnessService service = service(client);
+        CreateTuningTaskRequest request = sqlOnlyRequest();
+        request.setDeepAnalysis(Boolean.TRUE);
+
+        SqlTuningTask task = service.createTask(1L, request);
+        service.run(task);
+
+        assertThat(client.callCount()).isEqualTo(2);
+        assertThat(task.getResult().getSummary()).contains("完整修正版结果");
+        assertThat(task.getResult().getReview().getVerdict()).isEqualTo("REVISE");
+        assertThat(task.getResult().getReview().getRevisions()).containsExactly("降低未经验证结论的确定性");
+    }
+
+    @Test
+    void failedDeepReviewKeepsReviewAndRepairArtifactsDurable() {
+        RecordingLlmClient client = new RecordingLlmClient(mockContent(), "not-json", "still-not-json");
+        TuningHarnessService service = service(client);
+        CreateTuningTaskRequest request = sqlOnlyRequest();
+        request.setDeepAnalysis(Boolean.TRUE);
+
+        SqlTuningTask task = service.createTask(1L, request);
+
+        assertThatThrownBy(() -> service.run(task))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("深度复核修复输出不是合法 JSON");
+        SqlTuningTask saved = taskRepository.getForUser(task.getId(), 1L);
+        assertThat(saved.getArtifacts()).extracting("nodeName")
+                .contains("llmReview", "reviewValidateFailed", "llmReviewRepair");
+    }
+
+    @Test
     void createPersistsPlanImagesOutsideTaskJson() {
         TuningHarnessService service = service();
         CreateTuningTaskRequest request = sqlOnlyRequest();
