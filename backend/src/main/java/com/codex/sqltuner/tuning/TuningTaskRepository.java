@@ -318,7 +318,7 @@ public class TuningTaskRepository {
                             Object payload = null;
                             String payloadJson = rs.getString("payload_json");
                             if (payloadJson != null) {
-                                payload = jsonSupport.read(payloadJson, Object.class);
+                                payload = jsonSupport.readArtifactPayload(payloadJson);
                                 // 旧 JSON 迁移曾把完整 HarnessArtifact 写进 payload_json；读取时兼容解包。
                                 if (payload instanceof Map) {
                                     Map<?, ?> object = (Map<?, ?>) payload;

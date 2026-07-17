@@ -32,4 +32,33 @@ public class JdbcJsonSupport {
             throw new IllegalStateException("JSON 反序列化失败", e);
         }
     }
+
+    /**
+     * MySQL Connector/J 会把 JSON 字符串标量通过 getString() 直接返回为去引号文本，
+     * H2 则保留 JSON 引号。产物载荷允许字符串，因此读取时兼容这两种驱动行为；
+     * 产物仅用于诊断展示，单条历史载荷异常不能阻断任务领取或 SSE 快照。
+     */
+    public Object readArtifactPayload(String stored) {
+        if (stored == null) {
+            return null;
+        }
+        try {
+            Object value = objectMapper.readValue(stored, Object.class);
+            if (value instanceof String) {
+                String text = (String) value;
+                String trimmed = text.trim();
+                // H2 可能把整个 JSON 文档再包成字符串标量；只对对象/数组做第二层解包。
+                if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+                    try {
+                        return objectMapper.readValue(text, Object.class);
+                    } catch (Exception ignored) {
+                        return text;
+                    }
+                }
+            }
+            return value;
+        } catch (Exception ignored) {
+            return stored;
+        }
+    }
 }
