@@ -3,6 +3,7 @@ package com.codex.sqltuner.storage;
 import com.codex.sqltuner.config.ModelConfigService;
 import com.codex.sqltuner.config.ModelConfigUpdateRequest;
 import com.codex.sqltuner.config.ModelConfigView;
+import com.codex.sqltuner.config.ModelCatalogView;
 import com.codex.sqltuner.llm.ConfigurableLlmClient;
 import com.codex.sqltuner.llm.LlmProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -22,7 +23,7 @@ class ApiKeyEncryptionTest {
         ObjectMapper objectMapper = objectMapper();
         LlmProperties properties = new LlmProperties();
         JdbcTemplate jdbcTemplate = JdbcTestSupport.jdbcTemplate();
-        ModelConfigService service = new ModelConfigService(jdbcTemplate, properties, new ConfigurableLlmClient(properties, objectMapper), new CryptoSupport());
+        ModelConfigService service = service(jdbcTemplate, properties, objectMapper);
 
         ModelConfigUpdateRequest request = new ModelConfigUpdateRequest();
         request.setProvider("dashscope");
@@ -42,9 +43,18 @@ class ApiKeyEncryptionTest {
         assertThat(stored).contains("enc:v1:");
 
         // 重启后能解密回用：runtime() 返回的 apiKey 是明文。
-        ModelConfigService restartedService = new ModelConfigService(jdbcTemplate, properties, new ConfigurableLlmClient(properties, objectMapper), new CryptoSupport());
+        ModelConfigService restartedService = service(jdbcTemplate, properties, objectMapper);
         ModelConfigRecord runtime = restartedService.runtime();
         assertThat(runtime.getApiKey()).isEqualTo("sk-super-secret-123456");
+    }
+
+    private ModelConfigService service(JdbcTemplate jdbcTemplate, LlmProperties properties, ObjectMapper objectMapper) {
+        return new ModelConfigService(
+                jdbcTemplate,
+                properties,
+                new ConfigurableLlmClient(properties, objectMapper),
+                new CryptoSupport(),
+                (baseUrl, apiKey, timeoutMs) -> new ModelCatalogView(baseUrl + "/models", java.util.Arrays.asList("model-a")));
     }
 
     @Test

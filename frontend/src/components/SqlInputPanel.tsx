@@ -79,7 +79,7 @@ export function SqlInputPanel({ loading, onSubmit, compact = false }: SqlInputPa
     planImages: [],
     deepAnalysis: false
   });
-  const [contextOpen, setContextOpen] = useState(true);
+  const [contextOpen, setContextOpen] = useState(false);
   const [imageError, setImageError] = useState("");
   const [draggingImages, setDraggingImages] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -292,26 +292,29 @@ export function SqlInputPanel({ loading, onSubmit, compact = false }: SqlInputPa
       </div>
 
       <div className="input-toolbar">
-        <button className={value.deepAnalysis ? "toggle active" : "toggle"} onClick={() => update("deepAnalysis", !value.deepAnalysis)} type="button">
-          <Sparkles size={15} />
-          {value.deepAnalysis ? "深度复核" : "标准分析"}
-        </button>
-        <button className="ghost-button" onClick={() => setContextOpen((open) => !open)} type="button">
-          <Layers size={15} />
-          证据包 {contextOpen ? "收起" : "展开"}
-        </button>
-        <span className="input-meter">{value.sqlText.trim().length} / 32768</span>
-        <div className="input-options">
+        <div className="analysis-options">
+          <button className={value.deepAnalysis ? "toggle active" : "toggle"} onClick={() => update("deepAnalysis", !value.deepAnalysis)} type="button">
+            <Sparkles size={15} />
+            {value.deepAnalysis ? "深度复核" : "标准分析"}
+          </button>
           <select value={value.dbDialect} onChange={(event) => update("dbDialect", event.target.value as SqlDialect)} aria-label="数据库方言">
             <option value="OceanBase MySQL">OB MySQL</option>
             <option value="OceanBase Oracle">OB Oracle</option>
           </select>
           <input value={value.obVersion} onChange={(event) => update("obVersion", event.target.value)} placeholder="OB 版本" aria-label="OceanBase 版本" />
-          <span>{inputTypeLabel(detectedType)}</span>
+          <span className="input-type-badge">{inputTypeLabel(detectedType)}</span>
         </div>
-        <button className="send-button" disabled={loading || !value.sqlText.trim()} onClick={submit} title="提交分析" aria-label="提交分析" type="button">
-          <Send size={18} />
-        </button>
+        <div className="analysis-actions">
+          <span className="input-meter">{value.sqlText.trim().length} / 32768</span>
+          <button className="ghost-button" onClick={() => setContextOpen((open) => !open)} type="button" aria-expanded={contextOpen}>
+            <Layers size={15} />
+            {contextOpen ? "收起证据" : "补充证据"}
+          </button>
+          <button className="send-button" disabled={loading || !value.sqlText.trim()} onClick={submit} title="提交分析" aria-label="提交分析" type="button">
+            <Send size={17} />
+            {loading ? "提交中" : "开始诊断"}
+          </button>
+        </div>
       </div>
 
       {contextOpen && (

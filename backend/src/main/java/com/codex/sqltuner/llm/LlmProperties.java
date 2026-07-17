@@ -9,6 +9,7 @@ public class LlmProperties {
     private String provider = "mock";
     private String baseUrl;
     private String model = "qwen-plus";
+    private String visionModel = "qwen3-vl-plus";
     private String apiKey;
     private int timeoutMs = 30000;
     private int mockDelayMs;
@@ -35,6 +36,14 @@ public class LlmProperties {
 
     public void setModel(String model) {
         this.model = model;
+    }
+
+    public String getVisionModel() {
+        return visionModel;
+    }
+
+    public void setVisionModel(String visionModel) {
+        this.visionModel = visionModel;
     }
 
     public String getApiKey() {
@@ -73,6 +82,11 @@ public class LlmProperties {
         }
         if (record.getModel() != null && !record.getModel().trim().isEmpty()) {
             this.model = record.getModel();
+        }
+        if (record.getVisionModel() != null && !record.getVisionModel().trim().isEmpty()) {
+            this.visionModel = record.getVisionModel();
+        } else {
+            this.visionModel = this.model;
         }
         if (record.getApiKey() != null && !record.getApiKey().trim().isEmpty()) {
             this.apiKey = record.getApiKey();

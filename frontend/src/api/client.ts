@@ -4,6 +4,7 @@ import type {
   HarnessArtifact,
   Message,
   ModelConfigView,
+  ModelCatalogView,
   ModelProviderOption,
   ModelTestResult,
   PlanImage,
@@ -168,7 +169,7 @@ export const api = {
   modelProviders() {
     return request<ModelProviderOption[]>("/api/admin/model-providers");
   },
-  updateModelConfig(input: { provider?: string; baseUrl?: string; model?: string; apiKey?: string; timeoutMs?: number }) {
+  updateModelConfig(input: { provider?: string; baseUrl?: string; model?: string; visionModel?: string; apiKey?: string; timeoutMs?: number }) {
     return request<ModelConfigView>("/api/admin/model-config", {
       method: "POST",
       body: JSON.stringify(input)
@@ -177,6 +178,12 @@ export const api = {
   testModelConfig() {
     return request<ModelTestResult>("/api/admin/model-config/test", {
       method: "POST"
+    });
+  },
+  discoverModels(input: { baseUrl?: string; apiKey?: string }) {
+    return request<ModelCatalogView>("/api/admin/model-config/models", {
+      method: "POST",
+      body: JSON.stringify(input)
     });
   },
   rules() {

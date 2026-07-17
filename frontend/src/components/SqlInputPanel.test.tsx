@@ -13,6 +13,18 @@ function renderPanel(onSubmit = vi.fn<(value: SqlInputValue) => void>()) {
 }
 
 describe("SqlInputPanel image evidence", () => {
+  it("keeps optional evidence collapsed until requested", async () => {
+    renderPanel();
+
+    expect(screen.queryByText("表结构")).not.toBeInTheDocument();
+    const trigger = screen.getByRole("button", { name: "补充证据" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+    await userEvent.click(trigger);
+    expect(screen.getByText("表结构")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "收起证据" })).toHaveAttribute("aria-expanded", "true");
+  });
+
   it("recognizes pasted report text and clipboard images", async () => {
     renderPanel();
 

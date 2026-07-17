@@ -4,6 +4,7 @@ public class ModelConfigView {
     private String provider;
     private String baseUrl;
     private String model;
+    private String visionModel;
     private Integer timeoutMs;
     private boolean apiKeyConfigured;
     // mockState: "mock"=明确配置 mock；"ready"=真实 provider+key；"missing-key"=真实 provider 缺少凭据。
@@ -13,10 +14,11 @@ public class ModelConfigView {
     public ModelConfigView() {
     }
 
-    public ModelConfigView(String provider, String baseUrl, String model, Integer timeoutMs, boolean apiKeyConfigured, String mockState) {
+    public ModelConfigView(String provider, String baseUrl, String model, String visionModel, Integer timeoutMs, boolean apiKeyConfigured, String mockState) {
         this.provider = provider;
         this.baseUrl = baseUrl;
         this.model = model;
+        this.visionModel = visionModel;
         this.timeoutMs = timeoutMs;
         this.apiKeyConfigured = apiKeyConfigured;
         this.mockState = mockState;
@@ -44,6 +46,14 @@ public class ModelConfigView {
 
     public void setModel(String model) {
         this.model = model;
+    }
+
+    public String getVisionModel() {
+        return visionModel;
+    }
+
+    public void setVisionModel(String visionModel) {
+        this.visionModel = visionModel;
     }
 
     public Integer getTimeoutMs() {

@@ -1,4 +1,4 @@
-import { Bot, CheckCircle2, Clock3, KeyRound, Link2, PlugZap, ServerCog, ShieldCheck } from "lucide-react";
+import { Bot, CheckCircle2, Clock3, KeyRound, Link2, PlugZap, RefreshCw, ServerCog, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { ModelConfigView, ModelProviderOption, ModelTestResult, ReadinessView, RuntimeHealthView } from "../types/api";
@@ -8,6 +8,7 @@ export function ModelConfigPage() {
   const [provider, setProvider] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [model, setModel] = useState("");
+  const [visionModel, setVisionModel] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [timeoutMs, setTimeoutMs] = useState("30000");
   const [message, setMessage] = useState("");
@@ -16,6 +17,8 @@ export function ModelConfigPage() {
   const [runtimeHealth, setRuntimeHealth] = useState<RuntimeHealthView | undefined>();
   const [readiness, setReadiness] = useState<ReadinessView | undefined>();
   const [testing, setTesting] = useState(false);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
 
   useEffect(() => {
     api.modelProviders().then(setProviders);
@@ -24,6 +27,7 @@ export function ModelConfigPage() {
       setProvider(next.provider || "");
       setBaseUrl(next.baseUrl || "");
       setModel(next.model || "");
+      setVisionModel(next.visionModel || next.model || "");
       setTimeoutMs(String(next.timeoutMs || 30000));
       setRuntimeHealth(health);
       setReadiness(ready);
@@ -35,12 +39,30 @@ export function ModelConfigPage() {
       provider,
       baseUrl,
       model,
+      visionModel,
       apiKey: apiKey.trim() || undefined,
       timeoutMs: Number(timeoutMs || 30000)
     });
     setConfig(next);
     setApiKey("");
     setMessage("模型配置已保存");
+  }
+
+  async function loadModels() {
+    setLoadingModels(true);
+    setMessage("");
+    try {
+      const catalog = await api.discoverModels({
+        baseUrl,
+        apiKey: apiKey.trim() || undefined
+      });
+      setAvailableModels(catalog.models);
+      setMessage(`已从网关读取 ${catalog.models.length} 个模型`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "模型列表读取失败");
+    } finally {
+      setLoadingModels(false);
+    }
   }
 
   async function testConnection() {
@@ -63,6 +85,8 @@ export function ModelConfigPage() {
     if (option) {
       setBaseUrl(option.defaultBaseUrl);
       setModel(option.defaultModel);
+      setVisionModel(nextProvider === "dashscope" ? "qwen3-vl-plus" : option.defaultModel);
+      setAvailableModels([]);
     }
   }
 
@@ -72,7 +96,7 @@ export function ModelConfigPage() {
         <div>
           <span>Model Gateway</span>
           <h1>模型网关配置</h1>
-          <p>配置千问兼容接口、模型、API Key 与超时。保存后后端立即使用，前端不回显密钥明文。</p>
+          <p>配置任意 OpenAI-compatible API、分析模型、视觉模型、API Key 与超时。保存后立即生效，密钥不会回显。</p>
         </div>
         <div className={config?.apiKeyConfigured ? "health-pill ok" : "health-pill warn"}>
           {config?.apiKeyConfigured ? <CheckCircle2 size={16} /> : <KeyRound size={16} />}
@@ -86,7 +110,7 @@ export function ModelConfigPage() {
             <Bot size={26} />
           </div>
           <h2>{config?.model || "qwen-plus"}</h2>
-          <p>{config?.provider || "dashscope"} · OpenAI Compatible</p>
+          <p>{config?.provider || "openai-compatible"} · OpenAI-compatible</p>
           <div className="model-stat-list">
             <div>
               <ServerCog size={16} />
@@ -130,7 +154,7 @@ export function ModelConfigPage() {
             {message && <em>{message}</em>}
           </div>
           <div className="field-grid">
-            <label>
+            <label className="span-2">
               <span>Provider</span>
               <select value={provider} onChange={(event) => changeProvider(event.target.value)}>
                 {providers.map((option) => (
@@ -142,12 +166,22 @@ export function ModelConfigPage() {
               </select>
             </label>
             <label>
-              <span>Model</span>
-              <input value={model} onChange={(event) => setModel(event.target.value)} placeholder="qwen-plus" />
+              <span>分析模型</span>
+              <input list="available-models" value={model} onChange={(event) => setModel(event.target.value)} placeholder="选择或输入模型 ID" />
+            </label>
+            <label>
+              <span>视觉模型</span>
+              <input list="available-models" value={visionModel} onChange={(event) => setVisionModel(event.target.value)} placeholder="选择支持图片的模型 ID" />
             </label>
             <label className="span-2">
               <span>Base URL</span>
-              <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1" />
+              <div className="endpoint-control">
+                <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.example.com/v1" />
+                <button className="ghost-button" type="button" onClick={loadModels} disabled={loadingModels || provider === "mock"}>
+                  <RefreshCw className={loadingModels ? "spin" : ""} size={15} />
+                  {loadingModels ? "读取中" : "读取模型"}
+                </button>
+              </div>
             </label>
             <label>
               <span>Timeout(ms)</span>
@@ -159,16 +193,19 @@ export function ModelConfigPage() {
                 value={apiKey}
                 onChange={(event) => setApiKey(event.target.value)}
                 type="password"
-                placeholder={config?.apiKeyConfigured ? "已配置，留空则保持不变" : "粘贴 DashScope API Key"}
+                placeholder={config?.apiKeyConfigured ? "已配置，留空则使用已保存密钥" : "粘贴 API Key"}
                 autoComplete="off"
               />
             </label>
           </div>
+          <datalist id="available-models">
+            {availableModels.map((item) => <option key={item} value={item} />)}
+          </datalist>
           <div className="callout-box">
             <KeyRound size={17} />
             <div>
               <strong>API Key 加密保存到 MySQL</strong>
-              <span>页面提交后不会回显明文。留空保存时保持已有密钥；空库初始化时可从 DASHSCOPE_API_KEY 写入。</span>
+              <span>“读取模型”调用网关标准 `/models` 接口；若网关不支持模型列表，仍可直接输入模型 ID。视觉模型只在上传截图时调用。</span>
             </div>
           </div>
           <div className="editor-actions">

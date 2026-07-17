@@ -4,7 +4,7 @@
 - Status: Active
 - Last refreshed: 2026-07-17
 - Primary product surfaces: Login, SQL diagnostic workspace, task report, model operations console, skill prompt console, deterministic rule catalog.
-- Evidence reviewed: `frontend/src/pages/App.tsx`, `frontend/src/components/AppShell.tsx`, `frontend/src/components/SqlInputPanel.tsx`, `frontend/src/components/ResultTabs.tsx`, `frontend/src/pages/*AdminPage.tsx`, `frontend/src/styles/global.css`, `README.md`, user-approved sqlTuner overhaul plan.
+- Evidence reviewed: `frontend/src/pages/App.tsx`, `frontend/src/components/AppShell.tsx`, `frontend/src/components/SqlInputPanel.tsx`, `frontend/src/components/ResultTabs.tsx`, `frontend/src/pages/*AdminPage.tsx`, `frontend/src/styles/global.css`, `README.md`, user-approved sqlTuner overhaul plan, production workspace screenshot supplied on 2026-07-17.
 
 ## Brand
 - Personality: precise, operational, evidence-first, calm under production pressure.
@@ -22,13 +22,14 @@
 - Key contexts of use: incident triage, slow query review, pre-release SQL review, post-migration OceanBase tuning.
 
 ## Information architecture
-- Primary navigation: left command rail with new tuning, searchable sessions, admin entry points and account controls.
+- Primary navigation: left command rail with new tuning, searchable sessions and account controls; administrator destinations live once in the top command bar and are not duplicated in the rail.
 - Core routes/screens: `/login`, `/chat`, `/tasks/:taskId`, `/admin/model`, `/admin/skills`, `/admin/rules`.
 - Content hierarchy: left session list, center SQL/context composer and conversation timeline, right diagnostic dossier with evidence, diagnoses, rewrites, indexes, validation, warnings and raw artifacts.
 
 ## Design principles
 - Principle 1: Evidence before advice; every recommendation area must expose supporting facts or missing input.
 - Principle 2: Operations density without clutter; repeat actions should be visible, compact and keyboard reachable.
+- Principle 3: Progressive evidence disclosure; the first screen prioritizes SQL/report input and keeps the optional evidence package collapsed until requested.
 - Tradeoffs: prefer explicit structured panels over conversational flourish; preserve legacy result display while making the new structured contract primary.
 
 ## Visual language
@@ -41,7 +42,7 @@
 
 ## Components
 - Existing components to reuse: authentication API shape, conversation/task APIs, theme hook, admin pages and task polling behavior.
-- New/changed components: router shell, mobile navigation dialog, CodeMirror SQL/report editor, pasted-report field extraction, image evidence tray with paste/drop/upload, context completeness meter, structured diagnostic dossier, searchable session list, compact admin consoles.
+- New/changed components: router shell, mobile navigation dialog, CodeMirror SQL/report editor, pasted-report field extraction, image evidence tray with paste/drop/upload, context completeness meter, structured diagnostic dossier, searchable session list, compact admin consoles, OpenAI-compatible model gateway with `/models` discovery and separate analysis/vision model selection.
 - Variants and states: queued/running/terminal task states, standard/deep analysis, `ADVICE`/`NEEDS_INPUT`, empty/error/loading/disabled/offline-ish retry states.
 - Token/component ownership: global CSS owns tokens and shared layout primitives; React components own state and semantics.
 
@@ -54,7 +55,7 @@
 
 ## Responsive behavior
 - Supported breakpoints/devices: desktop 1440, laptop/tablet 1024/768, mobile 390.
-- Layout adaptations: desktop uses persistent left/center/right workbench; tablet collapses report width; mobile uses a top bar, dialog navigation and full-screen report sheet.
+- Layout adaptations: desktop keeps the left rail and gives the center composer the full work area until a report is opened; only then does the center/right diagnostic split appear. Tablet collapses the report into an overlay; mobile uses a top bar, dialog navigation and full-screen report sheet. Empty report space must never reserve a blank desktop column.
 - Touch/hover differences: controls retain visible labels or accessible names; no workflow depends only on hover.
 
 ## Interaction states
@@ -75,7 +76,7 @@
 - Framework/styling system: React + Vite, `react-router-dom`, CodeMirror 6, selected Radix Dialog/Tabs/Tooltip primitives, lucide icons.
 - Design-token constraints: theme variables in CSS; ordinary radius 6-8px; no decorative gradients/orbs.
 - Performance constraints: frontend is static; model/API work stays backend; long SQL/context fields are bounded by API contract and rendered in scrollable code panels; input images are bounded, persisted outside task JSON, and processed by a bounded vision call before the text analysis.
-- Compatibility constraints: preserve existing API response wrapper and legacy result fields while reading new structured fields when present; unsafe requests load `/api/auth/csrf` and send the returned CSRF header token; readiness telemetry comes from `/api/health/ready` (`status`, `mysql`, `queued`, `running`) and model runtime telemetry from `/api/admin/health` (`provider`, `model`, `mockState`, `apiKeyConfigured`).
+- Compatibility constraints: preserve existing API response wrapper and legacy result fields while reading new structured fields when present; unsafe requests load `/api/auth/csrf` and send the returned CSRF header token; model gateways use OpenAI-compatible `/chat/completions` and optional `/models`, while manual model IDs remain available for gateways that do not expose catalogs; readiness telemetry comes from `/api/health/ready` (`status`, `mysql`, `queued`, `running`) and model runtime telemetry from `/api/admin/health` (`provider`, `model`, `mockState`, `apiKeyConfigured`).
 - Test/screenshot expectations: Vitest + Testing Library for component behavior; Playwright config and smoke specs for login/workspace/admin responsive flows.
 
 ## Open questions

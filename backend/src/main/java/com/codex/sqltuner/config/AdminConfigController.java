@@ -62,6 +62,15 @@ public class AdminConfigController {
         return ApiResponse.ok(modelConfigService.testConnection());
     }
 
+    @PostMapping("/model-config/models")
+    public ApiResponse<ModelCatalogView> discoverModels(@RequestBody(required = false) ModelCatalogRequest request, HttpSession session) {
+        CurrentUser.requireAdmin(session);
+        log.info("discoverModels param 入参: baseUrlConfigured: {}, apiKeyProvided: {}",
+                request != null && request.getBaseUrl() != null && !request.getBaseUrl().trim().isEmpty(),
+                request != null && request.getApiKey() != null && !request.getApiKey().trim().isEmpty());
+        return ApiResponse.ok(modelConfigService.discoverModels(request));
+    }
+
     @GetMapping("/rules")
     public ApiResponse<List<RuleFinding>> rules(HttpSession session) {
         CurrentUser.requireAdmin(session);

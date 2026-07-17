@@ -57,7 +57,7 @@ public class ConfigurableLlmClient implements LlmClient {
     public LlmResponse analyze(LlmRequest request) {
         long start = System.currentTimeMillis();
         String provider = properties.getProvider() == null ? "mock" : properties.getProvider();
-        String model = hasText(request.getModelOverride()) ? request.getModelOverride() : properties.getModel();
+        String model = resolveModel(request);
         log.info("analyze request 请求: provider: {}, model: {}, promptLength: {}, deepAnalysis: {}, imageCount: {}",
                 provider, model, request.getUserPrompt() == null ? 0 : request.getUserPrompt().length(),
                 request.isDeepAnalysis(), request.getImages() == null ? 0 : request.getImages().size());
@@ -167,7 +167,7 @@ public class ConfigurableLlmClient implements LlmClient {
 
     ObjectNode buildChatRequestBody(LlmRequest request) {
         ObjectNode body = objectMapper.createObjectNode();
-        body.put("model", hasText(request.getModelOverride()) ? request.getModelOverride() : properties.getModel());
+        body.put("model", resolveModel(request));
         ArrayNode messages = body.putArray("messages");
         ObjectNode system = objectMapper.createObjectNode();
         system.put("role", "system");
@@ -280,5 +280,15 @@ public class ConfigurableLlmClient implements LlmClient {
 
     private boolean hasText(String value) {
         return value != null && !value.trim().isEmpty();
+    }
+
+    private String resolveModel(LlmRequest request) {
+        if (hasText(request.getModelOverride())) {
+            return request.getModelOverride().trim();
+        }
+        if (request.hasImages() && hasText(properties.getVisionModel())) {
+            return properties.getVisionModel().trim();
+        }
+        return properties.getModel();
     }
 }

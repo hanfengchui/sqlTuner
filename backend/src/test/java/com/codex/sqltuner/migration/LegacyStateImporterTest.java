@@ -152,7 +152,7 @@ class LegacyStateImporterTest {
         state.getSkills().put("oceanbase-sql-tuning", new SkillVersion(7L,
                 "oceanbase-sql-tuning", 3, "skill content", true, created));
         ModelConfigRecord model = new ModelConfigRecord("dashscope",
-                "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen3.7-max", 30000);
+                "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen3.7-max", "qwen3-vl-plus", 30000);
         model.setApiKey("dashscope-secret");
         state.setModelConfig(model);
         return state;

@@ -66,17 +66,18 @@ class ConfigurableLlmClientMockFailTest {
     }
 
     @Test
-    void imageRequestBuildsOpenAiCompatibleContentArrayAndModelOverride() {
+    void imageRequestUsesConfiguredVisionModelAndOpenAiCompatibleContentArray() {
         LlmProperties properties = new LlmProperties();
         properties.setProvider("dashscope");
         properties.setModel("qwen3.7-max");
+        properties.setVisionModel("qwen3-vl-plus");
         ConfigurableLlmClient client = new ConfigurableLlmClient(properties, objectMapper);
 
         JsonNode body = client.buildChatRequestBody(new LlmRequest(
                 "system",
                 "extract plan",
                 false,
-                "qwen3-vl-plus",
+                null,
                 Arrays.asList(new LlmRequestImage("data:image/png;base64,iVBORw0KGgo="))));
 
         assertThat(body.path("model").asText()).isEqualTo("qwen3-vl-plus");

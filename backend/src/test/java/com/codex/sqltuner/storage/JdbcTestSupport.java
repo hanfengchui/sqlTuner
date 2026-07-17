@@ -46,7 +46,7 @@ public final class JdbcTestSupport {
 
     private static void seedModel(JdbcTemplate jdbcTemplate) {
         jdbcTemplate.update(
-                "INSERT INTO model_config(id, provider, base_url, model, encrypted_api_key, timeout_ms, updated_at) VALUES (1, 'mock', '', 'mock', NULL, 30000, ?)",
+                "INSERT INTO model_config(id, provider, base_url, model, vision_model, encrypted_api_key, timeout_ms, updated_at) VALUES (1, 'mock', '', 'mock', 'mock', NULL, 30000, ?)",
                 Timestamp.valueOf(LocalDateTime.now()));
     }
 

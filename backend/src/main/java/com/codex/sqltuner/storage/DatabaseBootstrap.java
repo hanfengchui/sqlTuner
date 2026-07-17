@@ -74,10 +74,11 @@ public class DatabaseBootstrap {
         LocalDateTime now = LocalDateTime.now();
         String apiKey = llmProperties.getApiKey();
         jdbcTemplate.update(
-                "INSERT INTO model_config(id, provider, base_url, model, encrypted_api_key, timeout_ms, updated_at) VALUES (1, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO model_config(id, provider, base_url, model, vision_model, encrypted_api_key, timeout_ms, updated_at) VALUES (1, ?, ?, ?, ?, ?, ?, ?)",
                 llmProperties.getProvider(),
                 llmProperties.getBaseUrl(),
                 llmProperties.getModel(),
+                llmProperties.getVisionModel(),
                 apiKey == null || apiKey.trim().isEmpty() ? null : cryptoSupport.encrypt(apiKey.trim()),
                 llmProperties.getTimeoutMs(),
                 Timestamp.valueOf(now));
@@ -85,12 +86,13 @@ public class DatabaseBootstrap {
 
     private void loadRuntimeModelConfig() {
         ModelConfigRecord record = jdbcTemplate.queryForObject(
-                "SELECT provider, base_url, model, encrypted_api_key, timeout_ms FROM model_config WHERE id = 1",
+                "SELECT provider, base_url, model, vision_model, encrypted_api_key, timeout_ms FROM model_config WHERE id = 1",
                 (rs, rowNum) -> {
                     ModelConfigRecord value = new ModelConfigRecord(
                             rs.getString("provider"),
                             rs.getString("base_url"),
                             rs.getString("model"),
+                            rs.getString("vision_model"),
                             rs.getInt("timeout_ms"));
                     String storedKey = rs.getString("encrypted_api_key");
                     String decrypted = storedKey == null ? null : cryptoSupport.decrypt(storedKey);

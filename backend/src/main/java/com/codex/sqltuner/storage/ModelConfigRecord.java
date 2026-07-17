@@ -4,16 +4,18 @@ public class ModelConfigRecord {
     private String provider;
     private String baseUrl;
     private String model;
+    private String visionModel;
     private String apiKey;
     private Integer timeoutMs;
 
     public ModelConfigRecord() {
     }
 
-    public ModelConfigRecord(String provider, String baseUrl, String model, Integer timeoutMs) {
+    public ModelConfigRecord(String provider, String baseUrl, String model, String visionModel, Integer timeoutMs) {
         this.provider = provider;
         this.baseUrl = baseUrl;
         this.model = model;
+        this.visionModel = visionModel;
         this.timeoutMs = timeoutMs;
     }
 
@@ -39,6 +41,14 @@ public class ModelConfigRecord {
 
     public void setModel(String model) {
         this.model = model;
+    }
+
+    public String getVisionModel() {
+        return visionModel;
+    }
+
+    public void setVisionModel(String visionModel) {
+        this.visionModel = visionModel;
     }
 
     public Integer getTimeoutMs() {

@@ -34,6 +34,7 @@ llm:
   provider: ${LLM_PROVIDER:mock}
   base-url: ${LLM_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
   model: ${LLM_MODEL:qwen-plus}
+  vision-model: ${LLM_VISION_MODEL:qwen3-vl-plus}
   api-key: ${DASHSCOPE_API_KEY:}
   timeout-ms: ${LLM_TIMEOUT_MS:30000}
   mock-delay-ms: ${LLM_MOCK_DELAY_MS:0}

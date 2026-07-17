@@ -20,15 +20,18 @@ public class ModelConfigService {
     private final com.codex.sqltuner.llm.LlmProperties llmProperties;
     private final LlmClient llmClient;
     private final CryptoSupport cryptoSupport;
+    private final ModelCatalogClient modelCatalogClient;
 
     public ModelConfigService(JdbcTemplate jdbcTemplate,
                               com.codex.sqltuner.llm.LlmProperties llmProperties,
                               LlmClient llmClient,
-                              CryptoSupport cryptoSupport) {
+                              CryptoSupport cryptoSupport,
+                              ModelCatalogClient modelCatalogClient) {
         this.jdbcTemplate = jdbcTemplate;
         this.llmProperties = llmProperties;
         this.llmClient = llmClient;
         this.cryptoSupport = cryptoSupport;
+        this.modelCatalogClient = modelCatalogClient;
     }
 
     public ModelConfigView view() {
@@ -37,6 +40,7 @@ public class ModelConfigService {
                 record.getProvider(),
                 record.getBaseUrl(),
                 record.getModel(),
+                record.getVisionModel(),
                 record.getTimeoutMs(),
                 hasApiKey(record),
                 mockState(record)
@@ -63,6 +67,7 @@ public class ModelConfigService {
                                 rs.getString("provider"),
                                 rs.getString("base_url"),
                                 rs.getString("model"),
+                                rs.getString("vision_model"),
                                 rs.getInt("timeout_ms"));
                         String encrypted = rs.getString("encrypted_api_key");
                         String decrypted = encrypted == null || encrypted.trim().isEmpty() ? "" : cryptoSupport.decrypt(encrypted);
@@ -81,8 +86,8 @@ public class ModelConfigService {
 
     public List<ModelProviderOption> providers() {
         return Arrays.asList(
+                new ModelProviderOption("openai-compatible", "OpenAI-compatible API（通用）", "https://api.openai.com/v1", "gpt-4.1", true),
                 new ModelProviderOption("dashscope", "阿里云百炼 / 千问", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus", true),
-                new ModelProviderOption("openai-compatible", "OpenAI 兼容网关", "https://your-gateway.example.com/v1", "qwen-plus", true),
                 new ModelProviderOption("mock", "本地 Mock（不调用模型）", "", "mock", false)
         );
     }
@@ -98,6 +103,9 @@ public class ModelConfigService {
         if (request.getModel() != null && !request.getModel().trim().isEmpty()) {
             record.setModel(request.getModel().trim());
         }
+        if (request.getVisionModel() != null && !request.getVisionModel().trim().isEmpty()) {
+            record.setVisionModel(request.getVisionModel().trim());
+        }
         if (request.getApiKey() != null && !request.getApiKey().trim().isEmpty()) {
             record.setApiKey(request.getApiKey().trim());
         }
@@ -105,15 +113,24 @@ public class ModelConfigService {
             record.setTimeoutMs(request.getTimeoutMs());
         }
         jdbcTemplate.update(
-                "UPDATE model_config SET provider = ?, base_url = ?, model = ?, encrypted_api_key = ?, timeout_ms = ?, updated_at = ? WHERE id = 1",
+                "UPDATE model_config SET provider = ?, base_url = ?, model = ?, vision_model = ?, encrypted_api_key = ?, timeout_ms = ?, updated_at = ? WHERE id = 1",
                 record.getProvider(),
                 record.getBaseUrl(),
                 record.getModel(),
+                hasText(record.getVisionModel()) ? record.getVisionModel() : record.getModel(),
                 record.getApiKey() == null || record.getApiKey().trim().isEmpty() ? null : cryptoSupport.encrypt(record.getApiKey().trim()),
                 record.getTimeoutMs(),
                 Timestamp.valueOf(LocalDateTime.now()));
         llmProperties.apply(record);
         return view();
+    }
+
+    public ModelCatalogView discoverModels(ModelCatalogRequest request) {
+        ModelConfigRecord record = runtime();
+        String baseUrl = request != null && hasText(request.getBaseUrl()) ? request.getBaseUrl().trim() : record.getBaseUrl();
+        String apiKey = request != null && hasText(request.getApiKey()) ? request.getApiKey().trim() : record.getApiKey();
+        int timeoutMs = record.getTimeoutMs() == null ? 10000 : record.getTimeoutMs();
+        return modelCatalogClient.discover(baseUrl, apiKey, timeoutMs);
     }
 
     public ModelTestResult testConnection() {
@@ -160,5 +177,9 @@ public class ModelConfigService {
             return value;
         }
         return value.substring(0, maxLength) + "...";
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 }

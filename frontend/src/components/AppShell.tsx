@@ -160,22 +160,6 @@ function CommandRail({
             <small>SQL、结构、索引与 EXPLAIN</small>
           </span>
         </button>
-        {user.role === "ADMIN" && (
-          <div className="admin-shortcuts">
-            <button className={currentRoute.startsWith("/admin/model") ? "active" : ""} onClick={() => onNavigate("/admin/model")}>
-              <Bot size={15} />
-              模型
-            </button>
-            <button className={currentRoute.startsWith("/admin/skills") ? "active" : ""} onClick={() => onNavigate("/admin/skills")}>
-              <Settings size={15} />
-              技能
-            </button>
-            <button className={currentRoute.startsWith("/admin/rules") ? "active" : ""} onClick={() => onNavigate("/admin/rules")}>
-              <ShieldCheck size={15} />
-              规则
-            </button>
-          </div>
-        )}
       </div>
 
       <label className="search-card">

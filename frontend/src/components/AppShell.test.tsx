@@ -32,5 +32,6 @@ describe("AppShell", () => {
 
     expect(screen.getByText("库存分页查询")).toBeInTheDocument();
     expect(screen.queryByText("订单慢 SQL")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "模型" })).toHaveLength(1);
   });
 });

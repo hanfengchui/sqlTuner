@@ -227,6 +227,7 @@ export interface ModelConfigView {
   provider: string;
   baseUrl: string;
   model: string;
+  visionModel: string;
   timeoutMs?: number;
   apiKeyConfigured: boolean;
   mockState?: "mock" | "ready" | "missing-key" | string;
@@ -238,6 +239,11 @@ export interface ModelProviderOption {
   defaultBaseUrl: string;
   defaultModel: string;
   requiresApiKey: boolean;
+}
+
+export interface ModelCatalogView {
+  endpoint: string;
+  models: string[];
 }
 
 export interface ModelTestResult {

@@ -29,7 +29,7 @@
   --shadow-lg: 0 18px 48px rgba(22, 34, 51, 0.16);
   --radius: 8px;
   --radius-sm: 6px;
-  --sidebar-w: 292px;
+  --sidebar-w: 272px;
   --topbar-h: 56px;
 }
 
@@ -134,16 +134,16 @@ pre, code, .cm-editor { font-family: "JetBrains Mono", "SFMono-Regular", Consola
 }
 .brand-icon.large { width: 46px; height: 46px; }
 
-.quick-panel, .search-card, .progress-card, .result-panel, .admin-page > header, .model-summary, .config-editor-card, .editor-panel, .admin-list, .rule-card, .assessment-card, .review-card, .list-card {
+.progress-card, .result-panel, .admin-page > header, .model-summary, .config-editor-card, .editor-panel, .admin-list, .rule-card, .assessment-card, .review-card, .list-card {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
 }
 
-.quick-panel { padding: 12px; display: grid; gap: 12px; }
+.quick-panel { display: grid; gap: 10px; }
 .panel-heading { display: flex; justify-content: space-between; align-items: center; }
 
-.new-chat-card, .admin-shortcuts button, .topbar button, .ghost-button, .toggle, .icon-button, .conversation-delete, .report-inspector-actions button {
+.new-chat-card, .topbar button, .ghost-button, .toggle, .icon-button, .conversation-delete, .report-inspector-actions button {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface);
@@ -161,8 +161,7 @@ pre, code, .cm-editor { font-family: "JetBrains Mono", "SFMono-Regular", Consola
 .new-chat-card .plus { display: grid; place-items: center; color: #fff; background: var(--accent); width: 32px; height: 32px; border-radius: var(--radius-sm); }
 .new-chat-card small { display: block; color: var(--muted); margin-top: 2px; }
 
-.admin-shortcuts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.admin-shortcuts button, .topbar button, .ghost-button, .toggle, .icon-button {
+.topbar button, .ghost-button, .toggle, .icon-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -170,9 +169,9 @@ pre, code, .cm-editor { font-family: "JetBrains Mono", "SFMono-Regular", Consola
   min-height: 34px;
   padding: 7px 10px;
 }
-.admin-shortcuts button.active, .topbar button.active, .toggle.active { border-color: var(--accent); background: var(--accent-weak); color: var(--accent-ink); }
+.topbar button.active, .toggle.active { border-color: var(--accent); background: var(--accent-weak); color: var(--accent-ink); }
 
-.search-card { padding: 12px; display: grid; gap: 8px; }
+.search-card { display: grid; gap: 7px; }
 .search-input { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 8px 10px; background: var(--surface-2); }
 .search-input input { width: 100%; border: 0; outline: 0; background: transparent; }
 
@@ -204,20 +203,24 @@ pre, code, .cm-editor { font-family: "JetBrains Mono", "SFMono-Regular", Consola
   backdrop-filter: blur(12px);
 }
 .topbar-actions { display: flex; align-items: center; gap: 8px; }
-.mobile-menu { display: none; }
+.topbar .mobile-menu { display: none; }
 
 .workspace { padding: 18px; }
 .chat-workbench-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 42vw);
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
-  max-width: 1580px;
+  max-width: 1180px;
   margin: 0 auto;
+}
+.chat-inspector-open .chat-workbench-grid {
+  grid-template-columns: minmax(600px, 1fr) minmax(420px, 0.78fr);
+  max-width: 1680px;
 }
 .chat-column { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
 .conversation-stream {
-  height: calc(100vh - 360px);
-  min-height: 320px;
+  max-height: 38vh;
+  min-height: 220px;
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -249,7 +252,7 @@ pre, code, .cm-editor { font-family: "JetBrains Mono", "SFMono-Regular", Consola
 .task-mini-card { margin-top: 10px; padding: 10px; border: 1px solid var(--border); background: var(--surface-2); border-radius: var(--radius-sm); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .task-mini-card button { border: 1px solid var(--accent); color: var(--accent-ink); background: var(--accent-weak); border-radius: var(--radius-sm); padding: 6px 9px; }
 
-.composer-shell { position: sticky; bottom: 12px; z-index: 2; }
+.composer-shell { min-width: 0; }
 .sql-input-panel { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 12px; box-shadow: var(--shadow); display: grid; gap: 10px; }
 .composer-head { justify-content: space-between; gap: 12px; }
 .composer-head strong { display: block; }
@@ -281,8 +284,12 @@ pre, code, .cm-editor { font-family: "JetBrains Mono", "SFMono-Regular", Consola
 .image-evidence-note { margin: 0; }
 .image-error { font-size: 12px; }
 
-.input-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.input-toolbar .input-options { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.input-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.analysis-options, .analysis-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.analysis-actions { margin-left: auto; justify-content: flex-end; }
+.analysis-options select { min-width: 132px; }
+.analysis-options input { width: 132px; }
+.input-type-badge { display: inline-flex; align-items: center; min-height: 32px; padding: 5px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text-2); font-size: 12px; white-space: nowrap; }
 input, select, textarea {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
@@ -304,6 +311,7 @@ input:focus, select:focus, textarea:focus, .search-input:focus-within { border-c
   padding: 9px 13px;
   font-weight: 700;
 }
+.send-button { min-width: 116px; white-space: nowrap; }
 .send-button:hover:not(:disabled), .primary-button:hover:not(:disabled) { background: var(--accent-ink); }
 .context-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .context-grid label { display: grid; gap: 6px; }
@@ -393,6 +401,9 @@ input:focus, select:focus, textarea:focus, .search-input:focus-within { border-c
 .model-stat-list strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .field-grid label { display: grid; gap: 6px; color: var(--text-2); font-weight: 700; font-size: 13px; }
+.endpoint-control { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.endpoint-control input { min-width: 0; }
+.endpoint-control button { white-space: nowrap; }
 .span-2 { grid-column: span 2; }
 .callout-box, .skill-editor-callout, .test-result { display: flex; gap: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); padding: 10px; margin-top: 12px; color: var(--text-2); }
 .editor-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; color: var(--muted); }
@@ -427,7 +438,7 @@ input:focus, select:focus, textarea:focus, .search-input:focus-within { border-c
 @media (max-width: 1180px) {
   .app-shell { grid-template-columns: 1fr; }
   .app-shell > .sidebar { display: none; }
-  .mobile-menu { display: inline-flex; }
+  .topbar .mobile-menu { display: inline-flex; }
   .chat-workbench-grid { grid-template-columns: 1fr; }
   .report-inspector { position: fixed; inset: auto 0 0 0; top: 10vh; height: 90vh; border-radius: var(--radius) var(--radius) 0 0; z-index: 15; }
 }
@@ -437,10 +448,16 @@ input:focus, select:focus, textarea:focus, .search-input:focus-within { border-c
   .topbar-actions button:not(.theme-toggle) { display: none; }
   .workspace, .admin-page { padding: 10px; }
   .conversation-stream { height: auto; min-height: 300px; max-height: 44vh; }
+  .composer-head { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; }
+  .composer-head .context-meter { justify-self: start; }
   .context-grid, .model-console, .skill-admin-grid, .field-grid, .rule-grid, .rule-overview { grid-template-columns: 1fr; }
   .span-2 { grid-column: span 1; }
-  .input-toolbar .input-options { width: 100%; margin-left: 0; }
-  .input-options input, .input-options select { flex: 1; min-width: 130px; }
+  .endpoint-control { grid-template-columns: 1fr; }
+  .input-toolbar, .analysis-options, .analysis-actions { align-items: stretch; }
+  .analysis-options, .analysis-actions { width: 100%; }
+  .analysis-actions { margin-left: 0; }
+  .analysis-options input, .analysis-options select { flex: 1; min-width: 130px; width: auto; }
+  .analysis-actions .ghost-button, .analysis-actions .send-button { flex: 1; }
   .image-evidence-list { grid-template-columns: 1fr; }
   .image-evidence-intro { grid-template-columns: 20px minmax(0, 1fr); }
   .image-evidence-intro .ghost-button { grid-column: 1 / -1; width: 100%; }

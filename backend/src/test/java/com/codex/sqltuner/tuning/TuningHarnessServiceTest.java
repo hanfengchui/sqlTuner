@@ -376,7 +376,7 @@ class TuningHarnessServiceTest {
 
         SqlTuningTask saved = taskRepository.getForUser(task.getId(), 1L);
         assertThat(client.callCount()).isEqualTo(2);
-        assertThat(client.requests().get(0).getModelOverride()).isEqualTo("qwen3-vl-plus");
+        assertThat(client.requests().get(0).getModelOverride()).isNull();
         assertThat(client.requests().get(0).getImages()).hasSize(1);
         assertThat(client.requests().get(1).hasImages()).isFalse();
         assertThat(saved.getPlanImageFacts()).contains("TABLE ACCESS FULL");
@@ -422,7 +422,7 @@ class TuningHarnessServiceTest {
         service.run(task);
 
         assertThat(client.callCount()).isEqualTo(3);
-        assertThat(client.requests().get(1).getModelOverride()).isEqualTo("qwen3-vl-plus");
+        assertThat(client.requests().get(1).getModelOverride()).isNull();
         assertThat(client.requests().get(1).getImages()).hasSize(1);
         assertThat(task.getArtifacts()).extracting("nodeName")
                 .contains("planImageVisionValidateFailed", "planImageVisionRepair", "planImageVision");

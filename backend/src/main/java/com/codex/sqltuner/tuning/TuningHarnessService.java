@@ -49,7 +49,6 @@ import java.util.Locale;
 @Service
 public class TuningHarnessService {
     private static final Logger log = LoggerFactory.getLogger(TuningHarnessService.class);
-    private static final String VISION_MODEL = "qwen3-vl-plus";
     private static final String VISION_SYSTEM_PROMPT =
             "你是截图 OCR/视觉事实抽取器，只抽取图片中可见文字和执行计划事实。";
     private static final String VISION_EXTRACTION_PROMPT =
@@ -370,7 +369,7 @@ public class TuningHarnessService {
                 VISION_SYSTEM_PROMPT,
                 VISION_EXTRACTION_PROMPT,
                 false,
-                VISION_MODEL,
+                null,
                 requestImages));
         VisionExtractionResult vision = parseVisionExtractionAndRepairOnce(task, response, requestImages);
         task.setPlanImageFacts(summarizeVision(vision));
@@ -395,7 +394,7 @@ public class TuningHarnessService {
                     VISION_SYSTEM_PROMPT,
                     repairPrompt,
                     false,
-                    VISION_MODEL,
+                    null,
                     requestImages));
             addArtifact(task, "planImageVisionRepair", "图片视觉 JSON 修复调用完成", repaired);
             try {

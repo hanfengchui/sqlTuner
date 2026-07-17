@@ -4,6 +4,7 @@ public class ModelConfigUpdateRequest {
     private String provider;
     private String baseUrl;
     private String model;
+    private String visionModel;
     private String apiKey;
     private Integer timeoutMs;
 
@@ -29,6 +30,14 @@ public class ModelConfigUpdateRequest {
 
     public void setModel(String model) {
         this.model = model;
+    }
+
+    public String getVisionModel() {
+        return visionModel;
+    }
+
+    public void setVisionModel(String visionModel) {
+        this.visionModel = visionModel;
     }
 
     public Integer getTimeoutMs() {

@@ -224,10 +224,11 @@ public class LegacyStateImporter {
         String encryptedApiKey = plainApiKey == null || plainApiKey.isEmpty() ? null : cryptoSupport.encrypt(plainApiKey);
         jdbcTemplate.update("DELETE FROM model_config WHERE id = 1");
         jdbcTemplate.update(
-                "INSERT INTO model_config(id, provider, base_url, model, encrypted_api_key, timeout_ms, updated_at) VALUES (1, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO model_config(id, provider, base_url, model, vision_model, encrypted_api_key, timeout_ms, updated_at) VALUES (1, ?, ?, ?, ?, ?, ?, ?)",
                 defaultText(model.getProvider(), "mock"),
                 defaultText(model.getBaseUrl(), ""),
                 defaultText(model.getModel(), "mock"),
+                defaultText(model.getVisionModel(), defaultText(model.getModel(), "mock")),
                 encryptedApiKey,
                 model.getTimeoutMs() == null ? 30000 : model.getTimeoutMs(),
                 Timestamp.valueOf(LocalDateTime.now()));
