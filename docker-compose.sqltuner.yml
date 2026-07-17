@@ -1,0 +1,47 @@
+version: "3.8"
+
+services:
+  sql-tuner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sql-tuner:${SQL_TUNER_IMAGE_TAG:-local}
+    container_name: sql-tuner
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18084:8080"
+    environment:
+      SERVER_PORT: "8080"
+      SQL_TUNER_DB_URL: "jdbc:mysql://mysql:3306/sql_tuner?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai"
+      SQL_TUNER_DB_USERNAME: "${SQL_TUNER_DB_USERNAME:?SQL_TUNER_DB_USERNAME is required}"
+      SQL_TUNER_DB_PASSWORD: "${SQL_TUNER_DB_PASSWORD:?SQL_TUNER_DB_PASSWORD is required}"
+      SQL_TUNER_DB_DRIVER: "com.mysql.cj.jdbc.Driver"
+      SQL_TUNER_ADMIN_PASSWORD: "${SQL_TUNER_ADMIN_PASSWORD:?SQL_TUNER_ADMIN_PASSWORD is required}"
+      SQL_TUNER_USER_PASSWORD: "${SQL_TUNER_USER_PASSWORD:?SQL_TUNER_USER_PASSWORD is required}"
+      SQL_TUNER_DATA_KEY: "${SQL_TUNER_DATA_KEY:?SQL_TUNER_DATA_KEY is required}"
+      APP_CORS_ALLOWED_ORIGIN: "https://sql.pazhaug.info"
+      SESSION_COOKIE_SECURE: "true"
+      LLM_PROVIDER: "${LLM_PROVIDER:-mock}"
+      LLM_BASE_URL: "${LLM_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}"
+      LLM_MODEL: "${LLM_MODEL:-qwen-plus}"
+      DASHSCOPE_API_KEY: "${DASHSCOPE_API_KEY:-}"
+      SQL_TUNER_WORKERS: "4"
+      SQL_TUNER_LLM_MAX_PARALLEL: "4"
+      SQL_TUNER_QUEUE_MAX_GLOBAL: "100"
+      SQL_TUNER_QUEUE_MAX_PER_USER: "10"
+      SERVER_TOMCAT_THREADS_MAX: "200"
+      SERVER_TOMCAT_THREADS_MIN_SPARE: "100"
+      SERVER_TOMCAT_MAX_CONNECTIONS: "512"
+      SERVER_TOMCAT_ACCEPT_COUNT: "256"
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    mem_limit: 640m
+    networks:
+      compose_app-network:
+        aliases:
+          - sql-tuner
+
+networks:
+  compose_app-network:
+    external: true

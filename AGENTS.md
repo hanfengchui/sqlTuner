@@ -48,4 +48,4 @@ Java service logs must make the key path reconstructable: input, downstream call
 
 - Backend: run `mvn test` in `backend/`.
 - Frontend: run `npm run build` in `frontend/`.
-- Full packaging: build frontend, copy `frontend/dist` into `backend/src/main/resources/static`, then package backend.
+- Full packaging: build frontend, replace `backend/src/main/resources/static` with `frontend/dist`, then run `mvn clean package` so deleted classes cannot survive in the deployable JAR.
