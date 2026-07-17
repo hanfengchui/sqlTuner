@@ -12,6 +12,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -23,6 +25,30 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 
 class TuningQueueWorkerConcurrencyTest {
+    @Test
+    void stateTransitionDoesNotShortenLeaseRenewedByHeartbeat() {
+        JdbcTemplate jdbcTemplate = JdbcTestSupport.jdbcTemplate();
+        QueueProperties queueProperties = new QueueProperties();
+        TuningTaskRepository repository = repository(jdbcTemplate, queueProperties);
+        createQueuedTasks(jdbcTemplate, repository, 1);
+        SqlTuningTask claimed = repository.claimNext("worker-a");
+        LocalDateTime heartbeatLease = LocalDateTime.now().plusMinutes(5);
+        jdbcTemplate.update(
+                "UPDATE tuning_tasks SET lease_until = ? WHERE id = ?",
+                Timestamp.valueOf(heartbeatLease),
+                claimed.getId());
+
+        claimed.setStatus(TaskStatus.LLM_ANALYZING);
+        claimed.setStatusMessage("模型分析中");
+        repository.update(claimed);
+
+        LocalDateTime persistedLease = jdbcTemplate.queryForObject(
+                "SELECT lease_until FROM tuning_tasks WHERE id = ?",
+                (rs, rowNum) -> rs.getTimestamp(1).toLocalDateTime(),
+                claimed.getId());
+        assertThat(persistedLease).isAfterOrEqualTo(heartbeatLease.minusSeconds(1));
+    }
+
     @Test
     void dispatchRunsFourTasksAndLeavesFifthQueued() throws Exception {
         JdbcTemplate jdbcTemplate = JdbcTestSupport.jdbcTemplate();

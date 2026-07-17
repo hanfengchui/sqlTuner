@@ -140,13 +140,17 @@ public class TuningTaskRepository {
         long nextVersion = expectedVersion + 1L;
         task.setVersion(nextVersion);
         int updated = jdbcTemplate.update(
-                "UPDATE tuning_tasks SET status = ?, status_message = ?, task_json = ?, lease_owner = ?, lease_until = ?, "
+                "UPDATE tuning_tasks SET status = ?, status_message = ?, task_json = ?, lease_owner = ?, "
+                        + "lease_until = CASE WHEN ? IS NULL THEN NULL "
+                        + "WHEN lease_until IS NULL OR lease_until < ? THEN ? ELSE lease_until END, "
                         + "attempt_count = ?, next_attempt_at = ?, last_error_code = ?, version = ?, updated_at = ? "
                         + "WHERE id = ? AND version = ?",
                 task.getStatus().name(),
                 task.getStatusMessage(),
                 jsonSupport.write(task),
                 task.getLeaseOwner(),
+                toTimestamp(task.getLeaseUntil()),
+                toTimestamp(task.getLeaseUntil()),
                 toTimestamp(task.getLeaseUntil()),
                 task.getAttemptCount(),
                 toTimestamp(task.getNextAttemptAt()),
