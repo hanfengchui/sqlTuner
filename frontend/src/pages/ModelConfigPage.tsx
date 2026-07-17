@@ -1,7 +1,7 @@
 import { Bot, CheckCircle2, Clock3, KeyRound, Link2, PlugZap, ServerCog, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
-import type { ModelConfigView, ModelProviderOption, ModelTestResult } from "../types/api";
+import type { ModelConfigView, ModelProviderOption, ModelTestResult, ReadinessView, RuntimeHealthView } from "../types/api";
 
 export function ModelConfigPage() {
   const [config, setConfig] = useState<ModelConfigView | undefined>();
@@ -13,16 +13,20 @@ export function ModelConfigPage() {
   const [message, setMessage] = useState("");
   const [providers, setProviders] = useState<ModelProviderOption[]>([]);
   const [testResult, setTestResult] = useState<ModelTestResult | undefined>();
+  const [runtimeHealth, setRuntimeHealth] = useState<RuntimeHealthView | undefined>();
+  const [readiness, setReadiness] = useState<ReadinessView | undefined>();
   const [testing, setTesting] = useState(false);
 
   useEffect(() => {
     api.modelProviders().then(setProviders);
-    api.modelConfig().then((next) => {
+    Promise.all([api.modelConfig(), api.runtimeHealth().catch(() => undefined), api.readiness().catch(() => undefined)]).then(([next, health, ready]) => {
       setConfig(next);
       setProvider(next.provider || "");
       setBaseUrl(next.baseUrl || "");
       setModel(next.model || "");
       setTimeoutMs(String(next.timeoutMs || 30000));
+      setRuntimeHealth(health);
+      setReadiness(ready);
     });
   }, []);
 
@@ -72,7 +76,7 @@ export function ModelConfigPage() {
         </div>
         <div className={config?.apiKeyConfigured ? "health-pill ok" : "health-pill warn"}>
           {config?.apiKeyConfigured ? <CheckCircle2 size={16} /> : <KeyRound size={16} />}
-          {config?.apiKeyConfigured ? "凭据已加载" : "等待环境变量"}
+          {config?.apiKeyConfigured ? "凭据已加载" : "凭据未配置"}
         </div>
       </header>
 
@@ -101,8 +105,18 @@ export function ModelConfigPage() {
             </div>
             <div>
               <ShieldCheck size={16} />
-              <span>API Key</span>
-              <strong>{config?.apiKeyConfigured ? "已配置" : "未配置"}</strong>
+              <span>Runtime</span>
+              <strong>{runtimeHealth?.mockState || config?.mockState || (config?.apiKeyConfigured ? "ready" : "missing-key")}</strong>
+            </div>
+            <div>
+              <PlugZap size={16} />
+              <span>Queue</span>
+              <strong>{readiness ? `${readiness.running || 0} running / ${readiness.queued || 0} queued` : "未读取"}</strong>
+            </div>
+            <div>
+              <CheckCircle2 size={16} />
+              <span>MySQL</span>
+              <strong>{readiness?.mysql || readiness?.status || "未读取"}</strong>
             </div>
           </div>
         </aside>
@@ -153,12 +167,12 @@ export function ModelConfigPage() {
           <div className="callout-box">
             <KeyRound size={17} />
             <div>
-              <strong>API Key 只写入后端状态文件</strong>
-              <span>页面提交后不会回显明文。留空保存时保持已有密钥；也可以继续用 DASHSCOPE_API_KEY 环境变量。</span>
+              <strong>API Key 加密保存到 MySQL</strong>
+              <span>页面提交后不会回显明文。留空保存时保持已有密钥；空库初始化时可从 DASHSCOPE_API_KEY 写入。</span>
             </div>
           </div>
           <div className="editor-actions">
-            <span>{config?.apiKeyConfigured ? "可进行真实模型调用" : "未检测到 DASHSCOPE_API_KEY 时会回退到 mock"}</span>
+            <span>{config?.apiKeyConfigured ? "可进行真实模型调用" : "真实 provider 缺少 API Key 时会显式拒绝调用"}</span>
             <div className="action-row">
               <button className="ghost-button" onClick={testConnection} disabled={testing}>
                 <PlugZap size={16} />

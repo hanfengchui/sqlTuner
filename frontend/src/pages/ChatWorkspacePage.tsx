@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import { ConversationStream } from "../components/ConversationStream";
 import { ResultTabs } from "../components/ResultTabs";
 import { SqlInputPanel, type SqlInputValue } from "../components/SqlInputPanel";
+import { useTaskUpdates } from "../hooks/useTaskUpdates";
 import type { Message, SqlTuningTask } from "../types/api";
 
 interface ChatWorkspacePageProps {
@@ -15,12 +16,20 @@ interface ChatWorkspacePageProps {
 
 export function ChatWorkspacePage({ activeConversationId, activeTask, onTaskCreated, onOpenTask }: ChatWorkspacePageProps) {
   const [submitting, setSubmitting] = useState(false);
-  const [task, setTask] = useState<SqlTuningTask | undefined>(activeTask);
+  const [taskSeed, setTaskSeed] = useState<SqlTuningTask | undefined>(activeTask);
   const [messages, setMessages] = useState<Message[]>([]);
   const [tasksById, setTasksById] = useState<Record<number, SqlTuningTask>>({});
   const [inspectorTaskId, setInspectorTaskId] = useState<number | undefined>();
   const [error, setError] = useState("");
   const inspectorBodyRef = useRef<HTMLDivElement>(null);
+  const { task, error: taskError } = useTaskUpdates(taskSeed?.id, {
+    initialTask: taskSeed,
+    onTerminal: (terminalTask) => {
+      api.messages(terminalTask.conversationId)
+        .then(setMessages)
+        .catch((cause) => setError(cause instanceof Error ? cause.message : "会话刷新失败"));
+    }
+  });
 
   const inspectorTask = inspectorTaskId ? tasksById[inspectorTaskId] : undefined;
 
@@ -29,8 +38,14 @@ export function ChatWorkspacePage({ activeConversationId, activeTask, onTaskCrea
   }, [inspectorTaskId, inspectorTask?.status]);
 
   useEffect(() => {
-    setTask(activeTask);
+    setTaskSeed(activeTask);
   }, [activeTask]);
+
+  useEffect(() => {
+    if (task) {
+      setTasksById((current) => ({ ...current, [task.id]: task }));
+    }
+  }, [task]);
 
   useEffect(() => {
     let alive = true;
@@ -64,42 +79,6 @@ export function ChatWorkspacePage({ activeConversationId, activeTask, onTaskCrea
     };
   }, [activeConversationId]);
 
-  useEffect(() => {
-    if (!task || task.status === "DONE" || task.status === "FAILED") {
-      return;
-    }
-    const pollingTaskId = task.id;
-    let alive = true;
-    async function pollTask() {
-      try {
-        const next = await api.task(pollingTaskId);
-        if (!alive) {
-          return;
-        }
-        setTask(next);
-        setTasksById((current) => ({ ...current, [next.id]: next }));
-        if (next.status === "DONE" || next.status === "FAILED") {
-          if (next.conversationId) {
-            const nextMessages = await api.messages(next.conversationId);
-            if (alive) {
-              setMessages(nextMessages);
-            }
-          }
-          return;
-        }
-        window.setTimeout(pollTask, 1000);
-      } catch (e) {
-        if (alive) {
-          setError(e instanceof Error ? e.message : "任务刷新失败");
-        }
-      }
-    }
-    pollTask();
-    return () => {
-      alive = false;
-    };
-  }, [activeConversationId, task?.id, task?.status]);
-
   async function submit(value: SqlInputValue) {
     setSubmitting(true);
     setError("");
@@ -113,9 +92,15 @@ export function ChatWorkspacePage({ activeConversationId, activeTask, onTaskCrea
         indexText: value.indexText,
         explainText: value.explainText,
         businessContext: value.businessContext,
+        obVersion: value.obVersion,
+        tableStatsText: value.tableStatsText,
+        runtimeMetricsText: value.runtimeMetricsText,
+        businessInvariants: value.businessInvariants,
+        allowedActions: value.allowedActions,
+        planImages: value.planImages,
         deepAnalysis: value.deepAnalysis
-      });
-      setTask(created);
+      }, crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`);
+      setTaskSeed(created);
       setTasksById((current) => ({ ...current, [created.id]: created }));
       setInspectorTaskId(created.id);
       const nextMessages = await api.messages(created.conversationId);
@@ -138,7 +123,7 @@ export function ChatWorkspacePage({ activeConversationId, activeTask, onTaskCrea
             pendingTask={task}
             onInspectTask={(taskId) => setInspectorTaskId(taskId)}
           />
-          {error && <div className="form-error wide">{error}</div>}
+          {(error || taskError) && <div className="form-error wide">{error || taskError}</div>}
           <div className="composer-shell">
             <SqlInputPanel compact loading={submitting} onSubmit={submit} />
           </div>
@@ -148,7 +133,8 @@ export function ChatWorkspacePage({ activeConversationId, activeTask, onTaskCrea
             <div className="report-inspector-head">
               <div>
                 <span>SQL Report</span>
-                <strong>{inspectorTask ? `任务 #${inspectorTask.id}` : "报告加载中"}</strong>
+                <strong>{inspectorTask ? `任务 #${inspectorTask.id} · ${inspectorTask.status}` : "报告加载中"}</strong>
+                {inspectorTask?.queuePosition !== undefined && <small>队列位置 {inspectorTask.queuePosition}</small>}
               </div>
               <div className="report-inspector-actions">
                 {inspectorTask && (

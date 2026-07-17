@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { SkillVersion } from "../types/api";
 
+const MAX_SKILL_CONTENT_CHARS = 16 * 1024;
+
 export function SkillAdminPage() {
   const [skills, setSkills] = useState<SkillVersion[]>([]);
   const [active, setActive] = useState<SkillVersion | undefined>();
@@ -18,7 +20,8 @@ export function SkillAdminPage() {
   }, []);
 
   async function save() {
-    if (!active) {
+    if (!active || !content.trim() || content.length > MAX_SKILL_CONTENT_CHARS) {
+      setMessage("技能内容必须为 1–16384 字符");
       return;
     }
     const next = await api.saveSkill(active.name, content);
@@ -75,17 +78,17 @@ export function SkillAdminPage() {
             </div>
             <div className="skill-editor-status">
               <span>{active?.enabled ? "当前启用" : "未启用"}</span>
-              <span>{content.length} chars</span>
+              <span>{content.length} / {MAX_SKILL_CONTENT_CHARS} chars</span>
             </div>
           </div>
           <div className="skill-editor-callout">
             <Sparkles size={16} />
             <span>建议把技能写成稳定的系统提示词：先约束事实边界，再定义输出结构，最后补数据库场景的专有规则和禁止项。</span>
           </div>
-          <textarea value={content} onChange={(event) => setContent(event.target.value)} />
+          <textarea maxLength={MAX_SKILL_CONTENT_CHARS} value={content} onChange={(event) => setContent(event.target.value)} />
           <div className="editor-actions">
             <span>{message}</span>
-            <button className="primary-button" onClick={save}>
+            <button className="primary-button" onClick={save} disabled={!content.trim() || content.length > MAX_SKILL_CONTENT_CHARS}>
               <Save size={16} />
               发布新版本
             </button>

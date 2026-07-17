@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { AppShell } from "../components/AppShell";
 import { useTheme } from "../lib/useTheme";
@@ -11,45 +12,47 @@ import { SkillAdminPage } from "./SkillAdminPage";
 import { TaskDetailPage } from "./TaskDetailPage";
 
 export function App() {
-  const [route, setRoute] = useState(window.location.pathname === "/" ? "/chat" : window.location.pathname);
-  const [returnTo, setReturnTo] = useState(window.location.pathname === "/login" ? "/chat" : window.location.pathname === "/" ? "/chat" : window.location.pathname);
   const [user, setUser] = useState<UserView | null>(null);
   const [loadingUser, setLoadingUser] = useState(true);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<number | undefined>();
   const [activeTask, setActiveTask] = useState<SqlTuningTask | undefined>();
+  const [returnTo, setReturnTo] = useState("/chat");
   const { theme, toggle: toggleTheme } = useTheme();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
+    let alive = true;
     api
       .me()
-      .then((nextUser) => setUser(nextUser))
-      .finally(() => setLoadingUser(false));
+      .then((nextUser) => {
+        if (alive) {
+          setUser(nextUser);
+        }
+      })
+      .finally(() => {
+        if (alive) {
+          setLoadingUser(false);
+        }
+      });
+    return () => {
+      alive = false;
+    };
   }, []);
 
   useEffect(() => {
-    if (!loadingUser && !user && route !== "/login") {
-      setReturnTo(route === "/" ? "/chat" : route);
-      navigate("/login");
+    if (!loadingUser && !user && location.pathname !== "/login") {
+      setReturnTo(location.pathname === "/" ? "/chat" : location.pathname);
+      navigate("/login", { replace: true });
     }
-  }, [loadingUser, user, route]);
+  }, [loadingUser, user, location.pathname, navigate]);
 
   useEffect(() => {
     if (user) {
       refreshConversations();
     }
   }, [user]);
-
-  const taskIdFromRoute = useMemo(() => {
-    const match = route.match(/^\/tasks\/(\d+)/);
-    return match ? Number(match[1]) : undefined;
-  }, [route]);
-
-  function navigate(nextRoute: string) {
-    window.history.pushState(null, "", nextRoute);
-    window.scrollTo({ left: 0, top: 0 });
-    setRoute(nextRoute);
-  }
 
   async function refreshConversations() {
     const list = await api.conversations();
@@ -69,15 +72,12 @@ export function App() {
 
   async function deleteConversation(id: number) {
     await api.deleteConversation(id);
-    if (activeConversationId === id) {
-      setActiveConversationId(undefined);
-      setActiveTask(undefined);
-      navigate("/chat");
-    }
     const list = await api.conversations();
     setConversations(list);
-    if (activeConversationId === id && list.length > 0) {
-      setActiveConversationId(list[0].id);
+    if (activeConversationId === id) {
+      setActiveTask(undefined);
+      setActiveConversationId(list[0]?.id);
+      navigate("/chat");
     }
   }
 
@@ -90,14 +90,18 @@ export function App() {
   }
 
   if (loadingUser) {
-    return <div className="loading-screen">正在进入 SQL 调优助手...</div>;
+    return <div className="loading-screen">正在进入 OceanBase SQL 诊断工作台...</div>;
   }
 
-  if (!user || route === "/login") {
-    return <LoginPage onLogin={(nextUser) => {
-      setUser(nextUser);
-      navigate(returnTo || "/chat");
-    }} />;
+  if (!user || location.pathname === "/login") {
+    return (
+      <LoginPage
+        onLogin={(nextUser) => {
+          setUser(nextUser);
+          navigate(returnTo || "/chat", { replace: true });
+        }}
+      />
+    );
   }
 
   return (
@@ -105,7 +109,7 @@ export function App() {
       user={user}
       conversations={conversations}
       activeConversationId={activeConversationId}
-      currentRoute={route}
+      currentRoute={location.pathname}
       theme={theme}
       onToggleTheme={toggleTheme}
       onNewConversation={newConversation}
@@ -118,22 +122,29 @@ export function App() {
       onNavigate={navigate}
       onLogout={logout}
     >
-      {route.startsWith("/admin/skills") && <SkillAdminPage />}
-      {route.startsWith("/admin/model") && <ModelConfigPage />}
-      {route.startsWith("/admin/rules") && <RuleAdminPage />}
-      {route.startsWith("/tasks/") && taskIdFromRoute && <TaskDetailPage taskId={taskIdFromRoute} />}
-      {route === "/chat" && (
-        <ChatWorkspacePage
-          activeConversationId={activeConversationId}
-          activeTask={activeTask}
-          onOpenTask={(taskId) => navigate(`/tasks/${taskId}`)}
-          onTaskCreated={(task) => {
-            setActiveTask(task);
-            setActiveConversationId(task.conversationId);
-            refreshConversations();
-          }}
+      <Routes>
+        <Route path="/" element={<Navigate to="/chat" replace />} />
+        <Route
+          path="/chat"
+          element={
+            <ChatWorkspacePage
+              activeConversationId={activeConversationId}
+              activeTask={activeTask}
+              onOpenTask={(taskId) => navigate(`/tasks/${taskId}`)}
+              onTaskCreated={(task) => {
+                setActiveTask(task);
+                setActiveConversationId(task.conversationId);
+                refreshConversations();
+              }}
+            />
+          }
         />
-      )}
+        <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
+        <Route path="/admin/skills" element={<SkillAdminPage />} />
+        <Route path="/admin/model" element={<ModelConfigPage />} />
+        <Route path="/admin/rules" element={<RuleAdminPage />} />
+        <Route path="*" element={<Navigate to="/chat" replace />} />
+      </Routes>
     </AppShell>
   );
 }

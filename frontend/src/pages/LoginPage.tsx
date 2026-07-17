@@ -33,8 +33,8 @@ export function LoginPage({ onLogin }: LoginPageProps) {
         <div className="brand-icon large">
           <DatabaseZap size={30} />
         </div>
-        <h1>SQL 调优助手</h1>
-        <p>把慢 SQL 变成可执行的优化建议。</p>
+        <h1>OceanBase SQL 诊断工作台</h1>
+        <p>用证据、规则和模型复核生成可审阅的 SQL 调优建议。</p>
         <form onSubmit={submit}>
           <label>
             用户名

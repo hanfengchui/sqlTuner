@@ -5,10 +5,13 @@ import type { RuleFinding } from "../types/api";
 
 export function RuleAdminPage() {
   const [rules, setRules] = useState<RuleFinding[]>([]);
+  const [severity, setSeverity] = useState<RuleFinding["severity"] | "ALL">("ALL");
 
   useEffect(() => {
     api.rules().then(setRules);
   }, []);
+
+  const visibleRules = severity === "ALL" ? rules : rules.filter((rule) => rule.severity === severity);
 
   return (
     <div className="admin-page rule-admin-page">
@@ -31,8 +34,15 @@ export function RuleAdminPage() {
           <span>预警规则</span>
         </article>
       </section>
+      <div className="rule-filter" aria-label="规则严重度筛选">
+        {(["ALL", "HIGH", "WARN", "INFO"] as const).map((item) => (
+          <button key={item} className={severity === item ? "active" : ""} onClick={() => setSeverity(item)}>
+            {item === "ALL" ? "全部" : severityLabel(item)}
+          </button>
+        ))}
+      </div>
       <div className="rule-grid">
-        {rules.map((rule) => (
+        {visibleRules.map((rule) => (
           <article key={rule.code} className={`rule-card severity-${rule.severity.toLowerCase()}`}>
             <ShieldCheck size={18} />
             <span>{severityLabel(rule.severity)}</span>
