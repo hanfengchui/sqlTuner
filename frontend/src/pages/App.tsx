@@ -130,7 +130,6 @@ export function App() {
             <ChatWorkspacePage
               activeConversationId={activeConversationId}
               activeTask={activeTask}
-              onOpenTask={(taskId) => navigate(`/tasks/${taskId}`)}
               onTaskCreated={(task) => {
                 setActiveTask(task);
                 setActiveConversationId(task.conversationId);

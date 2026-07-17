@@ -1,7 +1,6 @@
 import * as Tooltip from "@radix-ui/react-tooltip";
 import {
   Bot,
-  DatabaseZap,
   LogOut,
   MessageSquarePlus,
   Moon,
@@ -37,41 +36,24 @@ export function AppShell(props: AppShellProps) {
         <CommandRail {...props} />
         <main className="main-stage">
           <header className="topbar">
-            <button className={props.currentRoute === "/chat" ? "topbar-primary active" : "topbar-primary"} onClick={() => props.onNavigate("/chat")}>
-              <MessageSquarePlus size={16} />
-              调优工作台
-            </button>
+            <button className="workspace-title" onClick={() => props.onNavigate("/chat")}>SQL 调优助手</button>
             <div className="topbar-actions">
               {props.user.role === "ADMIN" && (
                 <>
-                  <button className={props.currentRoute.startsWith("/admin/rules") ? "active" : ""} onClick={() => props.onNavigate("/admin/rules")}>
-                    <ShieldCheck size={16} />
-                    规则
-                  </button>
-                  <button className={props.currentRoute.startsWith("/admin/model") ? "active" : ""} onClick={() => props.onNavigate("/admin/model")}>
-                    <Bot size={16} />
-                    模型
-                  </button>
-                  <button className={props.currentRoute.startsWith("/admin/skills") ? "active" : ""} onClick={() => props.onNavigate("/admin/skills")}>
-                    <Settings size={16} />
-                    技能
-                  </button>
+                  <TopbarIcon label="规则" active={props.currentRoute.startsWith("/admin/rules")} onClick={() => props.onNavigate("/admin/rules")}>
+                    <ShieldCheck size={17} />
+                  </TopbarIcon>
+                  <TopbarIcon label="模型" active={props.currentRoute.startsWith("/admin/model")} onClick={() => props.onNavigate("/admin/model")}>
+                    <Bot size={17} />
+                  </TopbarIcon>
+                  <TopbarIcon label="技能" active={props.currentRoute.startsWith("/admin/skills")} onClick={() => props.onNavigate("/admin/skills")}>
+                    <Settings size={17} />
+                  </TopbarIcon>
                 </>
               )}
-              <Tooltip.Root>
-                <Tooltip.Trigger asChild>
-                  <button
-                    className="theme-toggle"
-                    aria-label={props.theme === "dark" ? "切换到浅色" : "切换到深色"}
-                    onClick={props.onToggleTheme}
-                  >
-                    {props.theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
-                  </button>
-                </Tooltip.Trigger>
-                <Tooltip.Content className="tooltip" sideOffset={8}>
-                  {props.theme === "dark" ? "浅色主题" : "深色主题"}
-                </Tooltip.Content>
-              </Tooltip.Root>
+              <TopbarIcon label={props.theme === "dark" ? "切换到浅色" : "切换到深色"} onClick={props.onToggleTheme}>
+                {props.theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
+              </TopbarIcon>
             </div>
           </header>
           {props.children}
@@ -85,11 +67,9 @@ function CommandRail({
   user,
   conversations,
   activeConversationId,
-  currentRoute,
   onNewConversation,
   onSelectConversation,
   onDeleteConversation,
-  onNavigate,
   onLogout
 }: AppShellProps) {
   const [query, setQuery] = useState("");
@@ -103,34 +83,18 @@ function CommandRail({
 
   return (
     <aside className="sidebar">
-      <div className="brand-row">
-        <div className="brand-icon">
-          <DatabaseZap size={22} />
-        </div>
-        <div>
-          <strong>OceanBase SQL</strong>
-          <span>Diagnostic Command Center</span>
-        </div>
+      <div className="rail-heading">
+        <strong>SQL 调优助手</strong>
+        <span>OceanBase</span>
       </div>
 
-      <div className="quick-panel">
-        <div className="panel-heading">
-          <span>工作入口</span>
-          <em>Evidence-first</em>
-        </div>
-        <button className="new-chat-card" onClick={onNewConversation}>
-          <span className="plus">
-            <MessageSquarePlus size={18} />
-          </span>
-          <span>
-            <strong>新建调优</strong>
-            <small>SQL、结构、索引与 EXPLAIN</small>
-          </span>
-        </button>
-      </div>
+      <button className="new-chat-card" onClick={onNewConversation}>
+        <MessageSquarePlus size={17} />
+        <span>新建调优</span>
+      </button>
 
       <label className="search-card">
-        <span>会话检索</span>
+        <span className="sr-only">会话检索</span>
         <div className="search-input">
           <Search size={15} />
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索会话标题" />
@@ -138,14 +102,14 @@ function CommandRail({
       </label>
 
       <div className="conversation-list">
-        <span className="section-label">{query ? "匹配结果" : "最近会话"}</span>
+        <span className="section-label">{query ? "匹配会话" : "最近会话"}</span>
         {filtered.map((conversation) => (
           <div key={conversation.id} className={conversation.id === activeConversationId ? "conversation-row active" : "conversation-row"}>
             <button className="conversation" onClick={() => onSelectConversation(conversation.id)}>
               <strong>{conversation.title}</strong>
               <span>{formatTime(conversation.updatedAt)}</span>
             </button>
-            <button className="conversation-delete" aria-label={`删除 ${conversation.title}`} onClick={() => onDeleteConversation(conversation.id)}>
+            <button className="conversation-delete" aria-label={`删除 ${conversation.title}`} title="删除会话" onClick={() => onDeleteConversation(conversation.id)}>
               <Trash2 size={14} />
             </button>
           </div>
@@ -159,11 +123,24 @@ function CommandRail({
           <strong>{user.displayName}</strong>
           <span>{user.role}</span>
         </div>
-        <button className="icon-button" aria-label="退出登录" onClick={onLogout}>
+        <button className="icon-button" aria-label="退出登录" title="退出登录" onClick={onLogout}>
           <LogOut size={16} />
         </button>
       </div>
     </aside>
+  );
+}
+
+function TopbarIcon({ label, active = false, onClick, children }: { label: string; active?: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <Tooltip.Root>
+      <Tooltip.Trigger asChild>
+        <button className={active ? "topbar-icon active" : "topbar-icon"} aria-label={label} onClick={onClick}>
+          {children}
+        </button>
+      </Tooltip.Trigger>
+      <Tooltip.Content className="tooltip" sideOffset={8}>{label}</Tooltip.Content>
+    </Tooltip.Root>
   );
 }
 

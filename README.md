@@ -2,7 +2,7 @@
 
 Internal SQL tuning assistant for slow OceanBase MySQL and OceanBase Oracle compatible SQL.
 
-The platform accepts SQL plus manually supplied context, runs a deterministic rule scan, builds a versioned skill prompt, calls a configurable LLM provider, and returns structured optimization advice.
+The platform accepts pasted SQL or a complete inspection-report text block plus optional screenshots, runs a deterministic rule scan, builds a versioned skill prompt, calls a configurable LLM provider, and returns concise, validated optimization advice in the conversation.
 
 ## Architecture
 
@@ -66,7 +66,7 @@ Never commit real API keys.
 
 - Conversations, tuning tasks, artifacts, input images, skill versions, and editable model settings are stored transactionally in MySQL. Flyway applies the schema on startup.
 - Default model provider is `mock`; configure `DASHSCOPE_API_KEY` and `LLM_PROVIDER=dashscope` or another OpenAI-compatible provider for real model calls.
-- Users choose OceanBase MySQL or OceanBase Oracle, then paste a single SQL statement or complete inspection-report text. Optional PNG/JPEG/WebP screenshots and manually supplied schema, indexes, EXPLAIN, statistics, metrics, and business constraints can be attached. DOC/DOCX/PDF import is intentionally unsupported.
+- Users choose OceanBase MySQL or OceanBase Oracle, then paste a single SQL statement or complete inspection-report text. Optional PNG/JPEG/WebP screenshots can be attached. The server extracts parseable SQL, EXPLAIN, statistics and metrics from a pasted report; DOC/DOCX/PDF import is intentionally unsupported.
 - The service does not connect to production databases, execute SQL, or apply DDL. Missing evidence lowers the confidence ceiling and blocks deterministic rewrite/index DDL output.
 - Admin users can edit provider, base URL, model name, timeout, and API Key from the Model Config page. API keys are encrypted with `SQL_TUNER_DATA_KEY` and are never returned to the frontend in plaintext.
 

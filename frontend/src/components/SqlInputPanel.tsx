@@ -1,23 +1,6 @@
-import CodeMirror from "@uiw/react-codemirror";
-import { sql } from "@codemirror/lang-sql";
-import { oneDark } from "@codemirror/theme-one-dark";
-import { EditorView } from "@codemirror/view";
-import {
-  Activity,
-  Database,
-  FileText,
-  Gauge,
-  ImagePlus,
-  Layers,
-  ListChecks,
-  Send,
-  ShieldCheck,
-  Sparkles,
-  Trash2,
-  Upload
-} from "lucide-react";
+import { ImagePlus, SendHorizontal, Sparkles, Trash2 } from "lucide-react";
 import type React from "react";
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { PlanImage, SqlDialect } from "../types/api";
 
 const MAX_IMAGE_COUNT = 3;
@@ -34,94 +17,43 @@ export interface SqlInputValue {
   dbDialect: SqlDialect;
   sqlText: string;
   inputType: "sql" | "report_text" | "natural_language";
-  schemaText: string;
-  indexText: string;
-  explainText: string;
-  businessContext: string;
-  obVersion: string;
-  tableStatsText: string;
-  runtimeMetricsText: string;
-  businessInvariants: string;
-  allowedActions: string[];
   planImages: PlanImage[];
   deepAnalysis: boolean;
 }
 
-type SqlInputDraft = Omit<SqlInputValue, "planImages"> & { planImages: PreparedPlanImage[] };
-
 interface SqlInputPanelProps {
   loading: boolean;
-  onSubmit: (value: SqlInputValue) => void;
-  compact?: boolean;
+  onSubmit: (value: SqlInputValue) => void | Promise<void>;
 }
 
-const actionOptions = [
-  { value: "diagnosis", label: "诊断" },
-  { value: "rewrite", label: "改写候选" },
-  { value: "index", label: "索引方向" },
-  { value: "validation", label: "验证计划" }
-];
-
-export function SqlInputPanel({ loading, onSubmit, compact = false }: SqlInputPanelProps) {
-  const [value, setValue] = useState<SqlInputDraft>({
-    dbDialect: "OceanBase MySQL",
-    sqlText: "",
-    inputType: "sql",
-    schemaText: "",
-    indexText: "",
-    explainText: "",
-    businessContext: "",
-    obVersion: "",
-    tableStatsText: "",
-    runtimeMetricsText: "",
-    businessInvariants: "",
-    allowedActions: ["diagnosis", "rewrite", "index", "validation"],
-    planImages: [],
-    deepAnalysis: false
-  });
-  const [contextOpen, setContextOpen] = useState(false);
+export function SqlInputPanel({ loading, onSubmit }: SqlInputPanelProps) {
+  const [dbDialect, setDbDialect] = useState<SqlDialect>("OceanBase MySQL");
+  const [sqlText, setSqlText] = useState("");
+  const [deepAnalysis, setDeepAnalysis] = useState(false);
+  const [planImages, setPlanImages] = useState<PreparedPlanImage[]>([]);
   const [imageError, setImageError] = useState("");
   const [draggingImages, setDraggingImages] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
-  const completeness = useMemo(() => contextCompleteness(value), [value]);
-  const detectedType = detectInputType(value.sqlText);
-
-  function update<K extends keyof SqlInputDraft>(key: K, next: SqlInputDraft[K]) {
-    setValue((current) => ({ ...current, [key]: next }));
-  }
-
-  function toggleAction(action: string) {
-    setValue((current) => ({
-      ...current,
-      allowedActions: current.allowedActions.includes(action)
-        ? current.allowedActions.filter((item) => item !== action)
-        : [...current.allowedActions, action]
-    }));
-  }
-
-  function submit() {
-    if (!value.sqlText.trim() || loading) {
+  async function submit() {
+    if (!sqlText.trim() || loading) {
       return;
     }
-    onSubmit({
-      ...value,
-      inputType: detectInputType(value.sqlText),
-      planImages: value.planImages.map(({ name, dataUrl }) => ({ name, dataUrl }))
-    });
-    setValue((current) => ({
-      ...current,
-      sqlText: "",
-      schemaText: "",
-      indexText: "",
-      explainText: "",
-      businessContext: "",
-      tableStatsText: "",
-      runtimeMetricsText: "",
-      businessInvariants: "",
-      planImages: []
-    }));
-    setImageError("");
+    const nextValue: SqlInputValue = {
+      dbDialect,
+      sqlText,
+      inputType: detectInputType(sqlText),
+      planImages: planImages.map(({ name, dataUrl }) => ({ name, dataUrl })),
+      deepAnalysis
+    };
+    try {
+      await onSubmit(nextValue);
+      setSqlText("");
+      setPlanImages([]);
+      setImageError("");
+    } catch {
+      // 页面层展示请求错误；草稿保留，避免长报告和截图在失败时丢失。
+    }
   }
 
   async function addImageFiles(files: File[]) {
@@ -137,38 +69,32 @@ export function SqlInputPanel({ loading, onSubmit, compact = false }: SqlInputPa
       errors.push(`${file.name || "剪贴板图片"}：仅支持 PNG、JPEG、WebP`);
       return false;
     });
-    const availableSlots = Math.max(0, MAX_IMAGE_COUNT - value.planImages.length);
+    const availableSlots = Math.max(0, MAX_IMAGE_COUNT - planImages.length);
     if (supportedFiles.length > availableSlots) {
-      errors.push(`最多添加 ${MAX_IMAGE_COUNT} 张图片，已忽略超出部分`);
+      errors.push(`最多添加 ${MAX_IMAGE_COUNT} 张截图，已忽略超出部分`);
     }
 
     const prepared: PreparedPlanImage[] = [];
     for (const file of supportedFiles.slice(0, availableSlots)) {
       try {
-        prepared.push(await preparePlanImage(file, value.planImages.length + prepared.length + 1));
+        prepared.push(await preparePlanImage(file, planImages.length + prepared.length + 1));
       } catch (error) {
         errors.push(error instanceof Error ? error.message : `${file.name || "图片"} 处理失败`);
       }
     }
 
-    let projectedBytes = value.planImages.reduce((sum, image) => sum + image.size, 0);
-    const withinTotalLimit = prepared.filter((image) => {
-      if (projectedBytes + image.size > MAX_TOTAL_IMAGE_BYTES) {
-        errors.push(`${image.name}：图片总大小不能超过 5 MiB`);
-        return false;
-      }
-      projectedBytes += image.size;
-      return true;
-    });
-    setValue((current) => {
-      const remainingSlots = MAX_IMAGE_COUNT - current.planImages.length;
-      let totalBytes = current.planImages.reduce((sum, image) => sum + image.size, 0);
-      const accepted = withinTotalLimit.slice(0, remainingSlots).filter((image) => {
-        const canAdd = totalBytes + image.size <= MAX_TOTAL_IMAGE_BYTES;
-        totalBytes += canAdd ? image.size : 0;
-        return canAdd;
+    setPlanImages((current) => {
+      const remainingSlots = MAX_IMAGE_COUNT - current.length;
+      let totalBytes = current.reduce((sum, image) => sum + image.size, 0);
+      const accepted = prepared.slice(0, remainingSlots).filter((image) => {
+        if (totalBytes + image.size > MAX_TOTAL_IMAGE_BYTES) {
+          errors.push(`${image.name}：图片总大小不能超过 5 MiB`);
+          return false;
+        }
+        totalBytes += image.size;
+        return true;
       });
-      return { ...current, planImages: [...current.planImages, ...accepted] };
+      return [...current, ...accepted];
     });
     setImageError(errors.join("；"));
   }
@@ -180,236 +106,138 @@ export function SqlInputPanel({ loading, onSubmit, compact = false }: SqlInputPa
       .filter((file): file is File => Boolean(file));
     if (imageFiles.length > 0) {
       event.preventDefault();
+      const pastedText = typeof event.clipboardData.getData === "function"
+        ? event.clipboardData.getData("text/plain")
+        : "";
+      const target = event.target instanceof HTMLTextAreaElement ? event.target : undefined;
+      if (pastedText) {
+        const selectionStart = target?.selectionStart ?? sqlText.length;
+        const selectionEnd = target?.selectionEnd ?? sqlText.length;
+        setSqlText((current) => `${current.slice(0, selectionStart)}${pastedText}${current.slice(selectionEnd)}`);
+      }
       void addImageFiles(imageFiles);
     }
   }
 
-  function handleDrop(event: React.DragEvent<HTMLDivElement>) {
+  function handleDrop(event: React.DragEvent<HTMLElement>) {
     event.preventDefault();
     setDraggingImages(false);
     void addImageFiles(Array.from(event.dataTransfer.files));
   }
 
   function removeImage(index: number) {
-    setValue((current) => ({
-      ...current,
-      planImages: current.planImages.filter((_, imageIndex) => imageIndex !== index)
-    }));
+    setPlanImages((current) => current.filter((_, imageIndex) => imageIndex !== index));
     setImageError("");
   }
 
+  function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      void submit();
+    }
+  }
+
   return (
-    <section className={compact ? "sql-input-panel compact" : "sql-input-panel"} onPaste={handlePaste}>
-      <div className="composer-head">
-        <div>
-          <span>SQL / Inspection Report</span>
-          <strong>粘贴 SQL 或整段巡检报告</strong>
-        </div>
-        <div className={`context-meter level-${completeness.level}`}>
-          <Gauge size={15} />
-          <span>{completeness.label}</span>
-          <em>{completeness.score}/5</em>
-        </div>
-      </div>
-
-      <div className="editor-frame">
-        <CodeMirror
-          value={value.sqlText}
-          height={compact ? "176px" : "240px"}
-          extensions={[
-            sql(),
-            EditorView.contentAttributes.of({ "aria-label": "SQL 或巡检报告文本" })
-          ]}
-          theme={document.documentElement.getAttribute("data-theme") === "dark" ? oneDark : "light"}
-          basicSetup={{
-            foldGutter: true,
-            lineNumbers: true,
-            highlightActiveLine: false
-          }}
-          onChange={(next) => update("sqlText", next)}
-          placeholder="直接粘贴 SELECT / INSERT / UPDATE / DELETE，或从 SQL ID:、SQL: 开始的整段巡检报告。"
-        />
-      </div>
-
-      <div
-        className={draggingImages ? "image-evidence-zone dragging" : "image-evidence-zone"}
-        onDragEnter={(event) => {
+    <section
+      className={draggingImages ? "chat-composer dragging" : "chat-composer"}
+      onPaste={handlePaste}
+      onDragEnter={(event) => {
+        if (event.dataTransfer.types.includes("Files")) {
           event.preventDefault();
           setDraggingImages(true);
+        }
+      }}
+      onDragOver={(event) => event.preventDefault()}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setDraggingImages(false);
+        }
+      }}
+      onDrop={handleDrop}
+      aria-label="SQL 调优消息编辑器"
+    >
+      <input
+        ref={imageInputRef}
+        className="sr-only"
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        multiple
+        aria-label="选择执行计划截图文件"
+        onChange={(event) => {
+          void addImageFiles(Array.from(event.currentTarget.files || []));
+          event.currentTarget.value = "";
         }}
-        onDragOver={(event) => event.preventDefault()}
-        onDragLeave={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-            setDraggingImages(false);
-          }
-        }}
-        onDrop={handleDrop}
-        aria-label="图片证据区"
-      >
-        <input
-          ref={imageInputRef}
-          className="sr-only"
-          type="file"
-          accept="image/png,image/jpeg,image/webp"
-          multiple
-          aria-label="选择执行计划图片"
-          onChange={(event) => {
-            void addImageFiles(Array.from(event.currentTarget.files || []));
-            event.currentTarget.value = "";
-          }}
-        />
-        <div className="image-evidence-intro">
-          <ImagePlus size={18} />
-          <div>
-            <strong>图片证据</strong>
-            <span>拖入或粘贴执行计划截图，最多 3 张</span>
-          </div>
-          <button className="ghost-button" type="button" onClick={() => imageInputRef.current?.click()}>
-            <Upload size={15} />
-            选择图片
-          </button>
-        </div>
-        {value.planImages.length > 0 && (
-          <div className="image-evidence-list" aria-label="已添加图片">
-            {value.planImages.map((image, index) => (
-              <article key={`${image.name}-${index}`}>
-                <img src={image.dataUrl} alt="" />
-                <div>
-                  <strong title={image.name}>{image.name}</strong>
-                  <span>{formatBytes(image.size)}</span>
-                </div>
-                <button type="button" onClick={() => removeImage(index)} aria-label={`删除 ${image.name}`} title="删除图片">
-                  <Trash2 size={15} />
-                </button>
-              </article>
-            ))}
-          </div>
-        )}
-        <p className="image-evidence-note">
-          图片由视觉模型提取，不能代替文本 EXPLAIN，不会自动提高索引 DDL 置信度。
-        </p>
-        {imageError && <div className="form-error image-error" role="alert">{imageError}</div>}
-      </div>
+      />
 
-      <div className="input-toolbar">
-        <div className="analysis-options">
-          <button className={value.deepAnalysis ? "toggle active" : "toggle"} onClick={() => update("deepAnalysis", !value.deepAnalysis)} type="button">
-            <Sparkles size={15} />
-            {value.deepAnalysis ? "深度复核" : "标准分析"}
-          </button>
-          <select value={value.dbDialect} onChange={(event) => update("dbDialect", event.target.value as SqlDialect)} aria-label="数据库方言">
-            <option value="OceanBase MySQL">OB MySQL</option>
-            <option value="OceanBase Oracle">OB Oracle</option>
-          </select>
-          <input value={value.obVersion} onChange={(event) => update("obVersion", event.target.value)} placeholder="OB 版本" aria-label="OceanBase 版本" />
-          <span className="input-type-badge">{inputTypeLabel(detectedType)}</span>
-        </div>
-        <div className="analysis-actions">
-          <span className="input-meter">{value.sqlText.trim().length} / 32768</span>
-          <button className="ghost-button" onClick={() => setContextOpen((open) => !open)} type="button" aria-expanded={contextOpen}>
-            <Layers size={15} />
-            {contextOpen ? "收起证据" : "补充证据"}
-          </button>
-          <button className="send-button" disabled={loading || !value.sqlText.trim()} onClick={submit} title="提交分析" aria-label="提交分析" type="button">
-            <Send size={17} />
-            {loading ? "提交中" : "开始诊断"}
-          </button>
-        </div>
-      </div>
-
-      {contextOpen && (
-        <div className="context-grid">
-          <ContextField
-            icon={<Database size={14} />}
-            label="表结构"
-            value={value.schemaText}
-            placeholder="CREATE TABLE / 字段类型 / 主键 / 分区"
-            onChange={(next) => update("schemaText", next)}
-          />
-          <ContextField
-            icon={<FileText size={14} />}
-            label="当前索引"
-            value={value.indexText}
-            placeholder="SHOW INDEX / 索引列顺序 / 唯一性"
-            onChange={(next) => update("indexText", next)}
-          />
-          <ContextField
-            icon={<FileText size={14} />}
-            label="EXPLAIN"
-            value={value.explainText}
-            placeholder="粘贴 EXPLAIN / 计划文本"
-            onChange={(next) => update("explainText", next)}
-          />
-          <ContextField
-            icon={<Activity size={14} />}
-            label="运行指标"
-            value={value.runtimeMetricsText}
-            placeholder="耗时、扫描行、返回行、RPC、租户资源"
-            onChange={(next) => update("runtimeMetricsText", next)}
-          />
-          <ContextField
-            icon={<ListChecks size={14} />}
-            label="表统计"
-            value={value.tableStatsText}
-            placeholder="行数、基数、热点值、分区分布"
-            onChange={(next) => update("tableStatsText", next)}
-          />
-          <ContextField
-            icon={<ShieldCheck size={14} />}
-            label="业务语义约束"
-            value={value.businessInvariants}
-            placeholder="不能改变过滤条件、排序、分页、锁语义等"
-            onChange={(next) => update("businessInvariants", next)}
-          />
-          <ContextField
-            icon={<FileText size={14} />}
-            label="业务说明"
-            value={value.businessContext}
-            placeholder="慢在哪里、期望耗时、调用场景"
-            onChange={(next) => update("businessContext", next)}
-          />
-          <fieldset className="action-field">
-            <legend>允许的建议类型</legend>
-            <div className="action-options">
-              {actionOptions.map((option) => (
-                <label key={option.value}>
-                  <input
-                    type="checkbox"
-                    checked={value.allowedActions.includes(option.value)}
-                    onChange={() => toggleAction(option.value)}
-                  />
-                  <span>{option.label}</span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
+      {planImages.length > 0 && (
+        <div className="attachment-strip" aria-label="已添加的执行计划截图">
+          {planImages.map((image, index) => (
+            <article key={`${image.name}-${index}`}>
+              <img src={image.dataUrl} alt="" />
+              <div>
+                <strong title={image.name}>{image.name}</strong>
+                <span>{formatBytes(image.size)}</span>
+              </div>
+              <button type="button" onClick={() => removeImage(index)} aria-label={`删除 ${image.name}`} title="删除截图">
+                <Trash2 size={14} />
+              </button>
+            </article>
+          ))}
         </div>
       )}
-    </section>
-  );
-}
 
-function ContextField({
-  icon,
-  label,
-  value,
-  placeholder,
-  onChange
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  placeholder: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label>
-      <span>
-        {icon}
-        {label}
-      </span>
-      <textarea value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
-    </label>
+      <textarea
+        value={sqlText}
+        onChange={(event) => setSqlText(event.target.value)}
+        onKeyDown={handleKeyDown}
+        aria-label="SQL 或巡检报告文本"
+        placeholder="粘贴 SQL 或完整巡检报告，直接得到优化建议"
+        rows={5}
+      />
+
+      <footer className="chat-composer-footer">
+        <div className="chat-composer-controls">
+          <label className="composer-select">
+            <span className="sr-only">数据库方言</span>
+            <select value={dbDialect} onChange={(event) => setDbDialect(event.target.value as SqlDialect)} aria-label="数据库方言">
+              <option value="OceanBase MySQL">OB MySQL</option>
+              <option value="OceanBase Oracle">OB Oracle</option>
+            </select>
+          </label>
+          <button
+            className="composer-icon-button"
+            type="button"
+            onClick={() => imageInputRef.current?.click()}
+            aria-label="添加执行计划截图"
+            title="添加执行计划截图"
+          >
+            <ImagePlus size={17} />
+            {planImages.length > 0 && <span>{planImages.length}</span>}
+          </button>
+          <button
+            className={deepAnalysis ? "analysis-mode active" : "analysis-mode"}
+            type="button"
+            onClick={() => setDeepAnalysis((current) => !current)}
+            aria-pressed={deepAnalysis}
+            title={deepAnalysis ? "深度复核已开启" : "标准分析"}
+          >
+            <Sparkles size={16} />
+            <span>{deepAnalysis ? "深度复核" : "标准分析"}</span>
+          </button>
+        </div>
+        <button
+          className="composer-send"
+          disabled={loading || !sqlText.trim()}
+          onClick={() => void submit()}
+          title="提交分析"
+          aria-label="提交分析"
+          type="button"
+        >
+          <SendHorizontal size={18} />
+        </button>
+      </footer>
+      {imageError && <div className="form-error composer-error" role="alert">{imageError}</div>}
+    </section>
   );
 }
 
@@ -422,16 +250,6 @@ function detectInputType(input: string): SqlInputValue["inputType"] {
     return "sql";
   }
   return "natural_language";
-}
-
-function inputTypeLabel(inputType: SqlInputValue["inputType"]) {
-  if (inputType === "sql") {
-    return "SQL";
-  }
-  if (inputType === "report_text") {
-    return "报告文本";
-  }
-  return "自然语言";
 }
 
 function normalizeImageType(type: string) {
@@ -527,7 +345,7 @@ function extensionForType(type: string) {
 }
 
 function sanitizeImageName(name: string) {
-  return name.replace(/[\r\n]/g, " ").trim().slice(0, 255) || "执行计划图片";
+  return name.replace(/[\r\n]/g, " ").trim().slice(0, 255) || "执行计划截图";
 }
 
 function formatBytes(bytes: number) {
@@ -535,24 +353,4 @@ function formatBytes(bytes: number) {
     return `${bytes} B`;
   }
   return `${(bytes / 1024).toFixed(bytes < 1024 * 100 ? 1 : 0)} KiB`;
-}
-
-function contextCompleteness(value: SqlInputValue) {
-  const score = [
-    value.sqlText.trim(),
-    value.schemaText.trim(),
-    value.indexText.trim(),
-    value.explainText.trim(),
-    value.obVersion.trim() || value.tableStatsText.trim() || value.runtimeMetricsText.trim()
-  ].filter(Boolean).length;
-  if (score <= 1) {
-    return { score, level: 1, label: "仅 SQL，低置信" };
-  }
-  if (score === 2) {
-    return { score, level: 2, label: "可做改写前提" };
-  }
-  if (score === 3) {
-    return { score, level: 3, label: "索引方向中置信" };
-  }
-  return { score, level: 4, label: "证据较完整" };
 }

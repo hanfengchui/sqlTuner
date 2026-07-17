@@ -1,6 +1,6 @@
 import { useParams } from "react-router-dom";
-import { HarnessProgress } from "../components/HarnessProgress";
-import { ResultTabs } from "../components/ResultTabs";
+import { TuningAdviceMessage } from "../components/TuningAdviceMessage";
+import { TuningEvidenceDetails } from "../components/TuningEvidenceDetails";
 import { useTaskUpdates } from "../hooks/useTaskUpdates";
 
 export function TaskDetailPage() {
@@ -9,13 +9,13 @@ export function TaskDetailPage() {
 
   return (
     <div className="workspace detail-workspace">
-      <section className="detail-header report-header">
+      <section className="detail-header task-detail-header">
         <div>
           <span>Task #{taskId}</span>
           <h1>{task?.statusMessage || "正在加载调优任务"}</h1>
-          {task?.sqlHash && <p>SQL Hash: {task.sqlHash}</p>}
+          <p>{task?.dbDialect || "OceanBase SQL"}</p>
         </div>
-        <div className="report-stats">
+        <div className="task-detail-stats">
           <article>
             <strong>{task?.status || "LOADING"}</strong>
             <span>状态</span>
@@ -35,8 +35,10 @@ export function TaskDetailPage() {
         </div>
       </section>
       {error && <div className="form-error wide">{error}</div>}
-      <HarnessProgress task={task} />
-      <ResultTabs task={task} />
+      <div className="task-detail-advice">
+        <TuningAdviceMessage task={task} progressive={false} showDetailLink={false} />
+      </div>
+      <TuningEvidenceDetails task={task} />
     </div>
   );
 }

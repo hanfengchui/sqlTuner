@@ -2,82 +2,84 @@
 
 ## Source of truth
 - Status: Active
-- Last refreshed: 2026-07-17
-- Primary product surfaces: Login, SQL diagnostic workspace, task report, model operations console, skill prompt console, deterministic rule catalog.
-- Evidence reviewed: `frontend/src/pages/App.tsx`, `frontend/src/components/AppShell.tsx`, `frontend/src/components/SqlInputPanel.tsx`, `frontend/src/components/ResultTabs.tsx`, `frontend/src/pages/*AdminPage.tsx`, `frontend/src/styles/global.css`, `README.md`, user-approved sqlTuner overhaul plan, production workspace screenshot supplied on 2026-07-17.
+- Last refreshed: 2026-07-18
+- Primary product surfaces: Login, desktop SQL tuning conversation, model operations console, skill prompt console, deterministic rule catalog.
+- Evidence reviewed: `frontend/src/pages/App.tsx`, `frontend/src/components/AppShell.tsx`, `frontend/src/components/SqlInputPanel.tsx`, `frontend/src/components/ConversationStream.tsx`, `frontend/src/components/TuningAdviceMessage.tsx`, `frontend/src/pages/*AdminPage.tsx`, `frontend/src/styles/global.css`, `README.md`, user-approved sqlTuner overhaul plan, current production workspace screenshot and the supplied Codex desktop conversation reference on 2026-07-18.
 
 ## Brand
-- Personality: precise, operational, evidence-first, calm under production pressure.
-- Trust signals: context completeness, queue/status visibility, cited evidence, explicit missing information, model/review health, deterministic rules separated from model advice.
-- Avoid: marketing homepages, decorative gradients, oversized hero typography, fake controls, one-note purple/blue dashboards, unverified certainty.
+- Personality: focused, technical, quiet, and decisive under production pressure.
+- Trust signals: clear task stage, concise advice tied to the supplied input, explicit uncertainty only when it changes the next action, and no unverified model text.
+- Avoid: marketing homepages, decorative gradients, oversized hero typography, fake controls, dashboard-card clutter, evidence IDs in routine reading, unverified certainty, and redundant report panels.
 
 ## Product goals
-- Goals: help engineers convert OceanBase slow SQL evidence into reviewable diagnoses, rewrite candidates, index directions and validation plans.
-- Non-goals: connect to business databases, auto-apply DDL, support generic database engines, import DOC/DOCX/PDF report files, support tablet/mobile layouts, hide uncertainty behind confident prose.
-- Success signals: users can see why advice was given, what evidence is missing, what can be verified next, and whether a task is queued/running/done.
+- Goals: let engineers paste an OceanBase SQL or a full diagnostic-report text block, attach plan screenshots when useful, and receive a compact, actionable tuning answer in the same conversation.
+- Non-goals: connect to business databases, auto-apply DDL, support generic database engines, import DOC/DOCX/PDF report files, expose raw model tokens before validation, support tablet/mobile layouts, or hide uncertainty behind confident prose.
+- Success signals: the primary screen has one readable conversation column, no hidden operational report workflow is required, users can see a task progressing, and the final answer surfaces only the strongest actionable diagnoses, one rewrite/index direction when allowed, and the next required input when not.
 
 ## Personas and jobs
 - Primary personas: database engineer, backend engineer, operations owner, admin maintaining model/skill configuration.
-- User jobs: paste a SQL or a complete patrol-report text block, attach execution-plan/monitoring screenshots, supplement schema/index/text EXPLAIN/context, track task progress, inspect evidence and risks, compare rewrite/index candidates, recover historical sessions, operate model and skill settings.
+- User jobs: paste a SQL or a complete patrol-report text block, attach execution-plan/monitoring screenshots, track a validation-safe analysis in real time, review the concise recommendation, revisit historical conversations, and operate model and skill settings.
 - Key contexts of use: incident triage, slow query review, pre-release SQL review, post-migration OceanBase tuning.
 
 ## Information architecture
-- Primary navigation: left command rail with new tuning, searchable sessions and account controls; administrator destinations live once in the top command bar and are not duplicated in the rail.
+- Primary navigation: a dark desktop conversation rail with new tuning, real session search, recent conversations and account controls; administrator destinations live once in the top command bar and are not duplicated in the rail.
 - Core routes/screens: `/login`, `/chat`, `/tasks/:taskId`, `/admin/model`, `/admin/skills`, `/admin/rules`.
-- Content hierarchy: left session list, center SQL/context composer and conversation timeline, right diagnostic dossier with evidence, diagnoses, rewrites, indexes, validation, warnings and raw artifacts.
+- Content hierarchy: left conversation list, one centered conversation column, compact bottom composer, inline assistant answer. There is no right diagnostic dossier in the workspace; an unobtrusive link opens the separate task route when a full audit trail is genuinely needed.
 
 ## Design principles
-- Principle 1: Evidence before advice; every recommendation area must expose supporting facts or missing input.
-- Principle 2: Operations density without clutter; repeat actions should be visible, compact and keyboard reachable.
-- Principle 3: Progressive evidence disclosure; the first screen prioritizes SQL/report input and keeps the optional evidence package collapsed until requested.
-- Tradeoffs: prefer explicit structured panels over conversational flourish; preserve legacy result display while making the new structured contract primary.
+- Principle 1: One linear reading path. A user question, a trustworthy in-progress state, and a concise answer must fit the center column without switching context.
+- Principle 2: Validation before reveal. Live status may stream, but raw model output is never shown before strict validation succeeds.
+- Principle 3: Input should accept the form people already have. Full patrol-report text is parsed server-side; an attachment is a compact screenshot chip, not a large evidence form.
+- Principle 4: Disclosure earns its place. Evidence IDs, raw artifacts, exhaustive preconditions and duplicate risk text are hidden from the routine chat response.
+- Tradeoffs: structured detail remains stored and available through task APIs for auditability, while the product default is a concise conversational result rather than a tabbed report.
 
 ## Visual language
-- Color: graphite and porcelain neutrals, cobalt primary actions, amber/red reserved for warning and risk, green only for healthy/pass states.
-- Typography: IBM Plex Sans style system stack for UI, JetBrains Mono style stack for SQL and artifacts.
-- Spacing/layout rhythm: 4px token grid, compact 8-16px internal spacing, constrained work areas with predictable columns.
-- Shape/radius/elevation: 6-8px radius, hairline borders, low shadows only for overlays and sticky panels.
-- Motion: short state transitions; respect reduced motion.
-- Imagery/iconography: lucide icons for commands and status; no decorative illustrations.
+- Color: charcoal conversation rail and workspace by default, warm graphite message surfaces, cobalt for the one primary send action, amber/red only for uncertainty and failure, green only for completed health/pass states. The light theme remains available.
+- Typography: IBM Plex Sans style system stack for UI, JetBrains Mono style stack for pasted SQL/report text and rewritten SQL.
+- Spacing/layout rhythm: 4px token grid, narrow 8-16px internal spacing, a 760-860px reading column inside the desktop canvas, and ample blank space above an empty composer.
+- Shape/radius/elevation: 6-8px radius, quiet hairline borders, very low elevation. User input uses a subtle solid surface; assistant output should read as content rather than as stacked cards.
+- Motion: short section reveals after a validated task reaches `DONE`; respect reduced motion and immediately reveal all content in that mode.
+- Imagery/iconography: lucide icons for commands, status, attachments and copy; no decorative illustration, visual dashboard ornament or emoji.
 
 ## Components
-- Existing components to reuse: authentication API shape, conversation/task APIs, theme hook, admin pages and task polling behavior.
-- New/changed components: router shell, persistent desktop command rail, CodeMirror SQL/report editor, pasted-report field extraction, image evidence tray with paste/drop/upload, context completeness meter, structured diagnostic dossier, searchable session list, compact admin consoles, OpenAI-compatible model gateway with `/models` discovery and separate analysis/vision model selection.
+- Existing components to reuse: authentication API shape, conversation/task APIs, theme hook, admin pages, task SSE/polling behavior, server-side pasted-report extraction and image validation.
+- New/changed components: Codex-like desktop conversation rail, compact SQL/report message composer, screenshot attachment tray, chat task-progress message, validated tuning-advice message, a separate full-audit task detail, searchable session list and compact admin consoles.
+- Removed from the workspace: context-completeness meter, schema/index/EXPLAIN/runtime/semantic text fields, allowed-action checkboxes, the "补充证据" disclosure, right report inspector, result tabs and routine artifact/evidence cards.
 - Variants and states: queued/running/terminal task states, standard/deep analysis, `ADVICE`/`NEEDS_INPUT`, empty/error/loading/disabled/offline-ish retry states.
 - Token/component ownership: global CSS owns tokens and shared layout primitives; React components own state and semantics.
 
 ## Accessibility
 - Target standard: practical WCAG 2.1 AA for contrast, focus visibility, names and keyboard access.
-- Keyboard/focus behavior: route navigation, tabs, dialogs, search, form controls and icon actions must be reachable and visibly focused.
+- Keyboard/focus behavior: route navigation, session search, form controls and icon actions must be reachable and visibly focused.
 - Contrast/readability: neutral backgrounds with strong text contrast; warnings never rely on color alone.
-- Screen-reader semantics: dialogs, tabs, status text, labels and icon-only button labels are explicit.
+- Screen-reader semantics: status text, labels and icon-only button labels are explicit.
 - Reduced motion and sensory considerations: spinners and transitions are disabled or minimized with `prefers-reduced-motion`.
 
 ## Responsive behavior
 - Supported breakpoints/devices: desktop browsers at 1366, 1440 and 1920 widths. Tablet and mobile are explicitly unsupported.
-- Layout adaptations: the persistent left rail and desktop workbench never collapse. The center composer uses the full work area until a report is opened; only then does the center/right diagnostic split appear. Viewports below 1366px retain the desktop canvas with horizontal scrolling instead of responsive rearrangement.
+- Layout adaptations: the persistent left rail and the single center conversation column never collapse or split into a report panel. Viewports below 1366px retain the desktop canvas with horizontal scrolling instead of responsive rearrangement.
 - Touch/hover differences: desktop pointer and keyboard behavior only; no touch-specific interaction path is maintained.
 
 ## Interaction states
-- Loading: skeleton/status text for user bootstrap, messages, tasks and admin config.
-- Empty: workspace explains the next concrete input without marketing copy.
-- Error: inline error blocks include actionable retry context.
-- Success: task and model health use compact pass badges.
-- Disabled: disabled buttons keep labels and reason through surrounding status.
-- Offline/slow network, if applicable: polling failures surface as recoverable errors; task GET remains the recovery source.
+- Loading: status is an assistant message with the current task stage; it does not reveal unvalidated tokens.
+- Empty: the workspace centers the compact composer and asks for a SQL or full diagnostic-report text block, without marketing copy.
+- Error: inline assistant message states that the task failed and keeps the submitted text available in the conversation.
+- Success: once strict validation is complete, the assistant answer reveals its compact sections in order: conclusion, top diagnoses, one rewrite/index direction, then one next step only if needed.
+- Disabled: disabled controls retain accessible labels and the send action is disabled only while the composer is empty or submission is in progress.
+- Offline/slow network, if applicable: the in-progress message remains truthful; SSE reconnects and task GET remains the recovery source.
 
 ## Content voice
-- Tone: direct, technical Chinese with concise English labels where they match operator vocabulary.
-- Terminology: OceanBase MySQL, OceanBase Oracle, evidence, diagnosis, rewrite, index candidate, validation, risk, queue.
-- Microcopy rules: do not promise automatic speedups; distinguish candidate advice, verified evidence and missing input.
+- Tone: direct, technical Chinese. The assistant leads with the recommendation rather than process terminology.
+- Terminology: OceanBase MySQL, OceanBase Oracle, SQL, report, diagnosis, rewrite, index direction, next step, queue.
+- Microcopy rules: use plain imperative suggestions; no evidence-ID prose, no repeated confidence labels, no promise of automatic speedups. State a missing input only when it changes the next action.
 - Input evidence rules: the report sample document is only a transport example; product input is pasted SQL/report text plus pasted, dropped or selected PNG/JPEG/WebP images. Historical root-cause/advice text is an untrusted claim; screenshot facts come from the dedicated vision pass at LOW trust; an image never counts as a complete text EXPLAIN and never unlocks deterministic index DDL by itself.
 
 ## Implementation constraints
-- Framework/styling system: React + Vite, `react-router-dom`, CodeMirror 6, selected Radix Tabs/Tooltip primitives, lucide icons.
+- Framework/styling system: React + Vite, `react-router-dom`, selected Radix Tooltip primitive and lucide icons. The chat composer is a native, accessible textarea rather than a code-editor workbench.
 - Design-token constraints: theme variables in CSS; ordinary radius 6-8px; no decorative gradients/orbs.
-- Performance constraints: frontend is static; model/API work stays backend; long SQL/context fields are bounded by API contract and rendered in scrollable code panels; input images are bounded, persisted outside task JSON, and processed by a bounded vision call before the text analysis.
+- Performance constraints: frontend is static; model/API work stays backend; long pasted SQL/report text is bounded by the API contract and displayed in a scrollable monospace message; input images are bounded, persisted outside task JSON, and processed by a bounded vision call before the text analysis.
 - Compatibility constraints: preserve existing API response wrapper and legacy result fields while reading new structured fields when present; unsafe requests load `/api/auth/csrf` and send the returned CSRF header token; model gateways use OpenAI-compatible `/chat/completions` and optional `/models`, while manual model IDs remain available for gateways that do not expose catalogs; readiness telemetry comes from `/api/health/ready` (`status`, `mysql`, `queued`, `running`) and model runtime telemetry from `/api/admin/health` (`provider`, `model`, `mockState`, `apiKeyConfigured`).
-- Test/screenshot expectations: Vitest + Testing Library for component behavior; Playwright desktop projects at 1366 and 1920 for login, workspace and admin flows. No tablet/mobile projects or responsive acceptance criteria.
+- Test/screenshot expectations: Vitest + Testing Library for composer attachment handling, validated advice rendering and task-stage behavior; Playwright desktop projects at 1366 and 1920 for login, chat composer, conversation result, history and admin flows. No tablet/mobile projects or responsive acceptance criteria.
 
 ## Open questions
 - None for this implementation slice.

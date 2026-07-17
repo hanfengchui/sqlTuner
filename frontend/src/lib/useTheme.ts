@@ -4,15 +4,15 @@ export type Theme = "light" | "dark";
 
 const STORAGE_KEY = "sql-tuner-theme";
 
-// 读取已应用的主题：优先 localStorage，否则默认浅色。
+// 读取已应用的主题：优先用户选择，否则默认深色工作台。
 function readTheme(): Theme {
   if (typeof document !== "undefined" && document.documentElement.getAttribute("data-theme") === "dark") {
     return "dark";
   }
-  if (typeof localStorage !== "undefined" && localStorage.getItem(STORAGE_KEY) === "dark") {
-    return "dark";
+  if (typeof localStorage !== "undefined" && localStorage.getItem(STORAGE_KEY) === "light") {
+    return "light";
   }
-  return "light";
+  return "dark";
 }
 
 // 主题切换 hook：同步 <html data-theme> 与 localStorage，跨组件共享。

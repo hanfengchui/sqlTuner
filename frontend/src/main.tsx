@@ -5,9 +5,9 @@ import { App } from "./pages/App";
 import "./styles/global.css";
 
 // 启动前应用持久化的主题，避免首屏闪烁。
-// 浅色为默认，仅当显式保存过 dark 时才走深色。
+// 深色工作台为默认，用户可显式切回浅色。
 const savedTheme = localStorage.getItem("sql-tuner-theme");
-if (savedTheme === "dark") {
+if (savedTheme !== "light") {
   document.documentElement.setAttribute("data-theme", "dark");
 }
 

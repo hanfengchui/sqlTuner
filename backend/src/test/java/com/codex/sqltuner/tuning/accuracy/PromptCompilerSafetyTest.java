@@ -20,7 +20,9 @@ class PromptCompilerSafetyTest {
         assertThat(prompt)
                 .contains("待核验主张")
                 .contains("不能进入 evidenceRefs")
-                .contains("只有截图而没有可解析计划文本时仍视为缺少文本 EXPLAIN");
+                .contains("只有截图而没有可解析计划文本时仍视为缺少文本 EXPLAIN")
+                .contains("diagnoses 最多 3 条")
+                .contains("summary 不超过 120 个中文字符");
     }
 
     @Test
