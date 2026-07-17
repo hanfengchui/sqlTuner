@@ -1,18 +1,15 @@
-import * as Dialog from "@radix-ui/react-dialog";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import {
   Bot,
   DatabaseZap,
   LogOut,
-  Menu,
   MessageSquarePlus,
   Moon,
   Search,
   Settings,
   ShieldCheck,
   Sun,
-  Trash2,
-  X
+  Trash2
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { Theme } from "../lib/useTheme";
@@ -34,42 +31,12 @@ interface AppShellProps {
 }
 
 export function AppShell(props: AppShellProps) {
-  const [mobileOpen, setMobileOpen] = useState(false);
-
-  function selectConversation(id: number) {
-    props.onSelectConversation(id);
-    setMobileOpen(false);
-  }
-
-  function navigate(route: string) {
-    props.onNavigate(route);
-    setMobileOpen(false);
-  }
-
   return (
     <Tooltip.Provider delayDuration={250}>
       <div className="app-shell">
-        <CommandRail {...props} onSelectConversation={selectConversation} onNavigate={navigate} />
+        <CommandRail {...props} />
         <main className="main-stage">
           <header className="topbar">
-            <Dialog.Root open={mobileOpen} onOpenChange={setMobileOpen}>
-              <Dialog.Trigger asChild>
-                <button className="icon-button mobile-menu" aria-label="打开导航">
-                  <Menu size={18} />
-                </button>
-              </Dialog.Trigger>
-              <Dialog.Portal>
-                <Dialog.Overlay className="dialog-overlay" />
-                <Dialog.Content className="mobile-nav-sheet" aria-label="导航">
-                  <Dialog.Title className="sr-only">导航</Dialog.Title>
-                  <button className="icon-button sheet-close" aria-label="关闭导航" onClick={() => setMobileOpen(false)}>
-                    <X size={18} />
-                  </button>
-                  <CommandRail {...props} onSelectConversation={selectConversation} onNavigate={navigate} />
-                </Dialog.Content>
-              </Dialog.Portal>
-            </Dialog.Root>
-
             <button className={props.currentRoute === "/chat" ? "topbar-primary active" : "topbar-primary"} onClick={() => props.onNavigate("/chat")}>
               <MessageSquarePlus size={16} />
               调优工作台

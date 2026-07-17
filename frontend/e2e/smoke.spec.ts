@@ -32,14 +32,8 @@ test("workspace shell renders session search and composer", async ({ page }) => 
 
   await page.goto("/chat");
 
-  if (test.info().project.name === "desktop") {
-    await expect(page.getByText("OceanBase SQL")).toBeVisible();
-    await expect(page.getByPlaceholder("搜索会话标题")).toBeVisible();
-  } else {
-    await page.getByLabel("打开导航").click();
-    await expect(page.getByRole("dialog", { name: "导航" }).getByText("OceanBase SQL")).toBeVisible();
-    await expect(page.getByRole("dialog", { name: "导航" }).getByPlaceholder("搜索会话标题")).toBeVisible();
-  }
+  await expect(page.getByText("OceanBase SQL")).toBeVisible();
+  await expect(page.getByPlaceholder("搜索会话标题")).toBeVisible();
   await expect(page.getByText("SQL / Inspection Report")).toBeVisible();
   await expect(page.getByLabel("SQL 或巡检报告文本")).toBeVisible();
   await expect(page.getByLabel("图片证据区")).toBeVisible();

@@ -13,7 +13,7 @@
 
 ## Product goals
 - Goals: help engineers convert OceanBase slow SQL evidence into reviewable diagnoses, rewrite candidates, index directions and validation plans.
-- Non-goals: connect to business databases, auto-apply DDL, support generic database engines, import DOC/DOCX/PDF report files, hide uncertainty behind confident prose.
+- Non-goals: connect to business databases, auto-apply DDL, support generic database engines, import DOC/DOCX/PDF report files, support tablet/mobile layouts, hide uncertainty behind confident prose.
 - Success signals: users can see why advice was given, what evidence is missing, what can be verified next, and whether a task is queued/running/done.
 
 ## Personas and jobs
@@ -42,7 +42,7 @@
 
 ## Components
 - Existing components to reuse: authentication API shape, conversation/task APIs, theme hook, admin pages and task polling behavior.
-- New/changed components: router shell, mobile navigation dialog, CodeMirror SQL/report editor, pasted-report field extraction, image evidence tray with paste/drop/upload, context completeness meter, structured diagnostic dossier, searchable session list, compact admin consoles, OpenAI-compatible model gateway with `/models` discovery and separate analysis/vision model selection.
+- New/changed components: router shell, persistent desktop command rail, CodeMirror SQL/report editor, pasted-report field extraction, image evidence tray with paste/drop/upload, context completeness meter, structured diagnostic dossier, searchable session list, compact admin consoles, OpenAI-compatible model gateway with `/models` discovery and separate analysis/vision model selection.
 - Variants and states: queued/running/terminal task states, standard/deep analysis, `ADVICE`/`NEEDS_INPUT`, empty/error/loading/disabled/offline-ish retry states.
 - Token/component ownership: global CSS owns tokens and shared layout primitives; React components own state and semantics.
 
@@ -54,9 +54,9 @@
 - Reduced motion and sensory considerations: spinners and transitions are disabled or minimized with `prefers-reduced-motion`.
 
 ## Responsive behavior
-- Supported breakpoints/devices: desktop 1440, laptop/tablet 1024/768, mobile 390.
-- Layout adaptations: desktop keeps the left rail and gives the center composer the full work area until a report is opened; only then does the center/right diagnostic split appear. Tablet collapses the report into an overlay; mobile uses a top bar, dialog navigation and full-screen report sheet. Empty report space must never reserve a blank desktop column.
-- Touch/hover differences: controls retain visible labels or accessible names; no workflow depends only on hover.
+- Supported breakpoints/devices: desktop browsers at 1366, 1440 and 1920 widths. Tablet and mobile are explicitly unsupported.
+- Layout adaptations: the persistent left rail and desktop workbench never collapse. The center composer uses the full work area until a report is opened; only then does the center/right diagnostic split appear. Viewports below 1366px retain the desktop canvas with horizontal scrolling instead of responsive rearrangement.
+- Touch/hover differences: desktop pointer and keyboard behavior only; no touch-specific interaction path is maintained.
 
 ## Interaction states
 - Loading: skeleton/status text for user bootstrap, messages, tasks and admin config.
@@ -73,11 +73,11 @@
 - Input evidence rules: the report sample document is only a transport example; product input is pasted SQL/report text plus pasted, dropped or selected PNG/JPEG/WebP images. Historical root-cause/advice text is an untrusted claim; screenshot facts come from the dedicated vision pass at LOW trust; an image never counts as a complete text EXPLAIN and never unlocks deterministic index DDL by itself.
 
 ## Implementation constraints
-- Framework/styling system: React + Vite, `react-router-dom`, CodeMirror 6, selected Radix Dialog/Tabs/Tooltip primitives, lucide icons.
+- Framework/styling system: React + Vite, `react-router-dom`, CodeMirror 6, selected Radix Tabs/Tooltip primitives, lucide icons.
 - Design-token constraints: theme variables in CSS; ordinary radius 6-8px; no decorative gradients/orbs.
 - Performance constraints: frontend is static; model/API work stays backend; long SQL/context fields are bounded by API contract and rendered in scrollable code panels; input images are bounded, persisted outside task JSON, and processed by a bounded vision call before the text analysis.
 - Compatibility constraints: preserve existing API response wrapper and legacy result fields while reading new structured fields when present; unsafe requests load `/api/auth/csrf` and send the returned CSRF header token; model gateways use OpenAI-compatible `/chat/completions` and optional `/models`, while manual model IDs remain available for gateways that do not expose catalogs; readiness telemetry comes from `/api/health/ready` (`status`, `mysql`, `queued`, `running`) and model runtime telemetry from `/api/admin/health` (`provider`, `model`, `mockState`, `apiKeyConfigured`).
-- Test/screenshot expectations: Vitest + Testing Library for component behavior; Playwright config and smoke specs for login/workspace/admin responsive flows.
+- Test/screenshot expectations: Vitest + Testing Library for component behavior; Playwright desktop projects at 1366 and 1920 for login, workspace and admin flows. No tablet/mobile projects or responsive acceptance criteria.
 
 ## Open questions
 - None for this implementation slice.
