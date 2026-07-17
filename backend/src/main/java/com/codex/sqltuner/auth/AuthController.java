@@ -10,7 +10,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import javax.servlet.http.HttpSession;
+import javax.servlet.http.HttpServletRequest;
 import javax.validation.Valid;
+import java.util.HashMap;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -23,9 +26,12 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ApiResponse<UserView> login(@Valid @RequestBody LoginRequest request, HttpSession session) {
+    public ApiResponse<UserView> login(@Valid @RequestBody LoginRequest request,
+                                       HttpSession session,
+                                       HttpServletRequest servletRequest) {
         log.info("login param 入参: username: {}", request.getUsername());
         UserAccount account = authService.login(request.getUsername(), request.getPassword());
+        servletRequest.changeSessionId();
         session.setAttribute(AuthService.SESSION_USER, account);
         return ApiResponse.ok(UserView.from(account));
     }
@@ -45,5 +51,18 @@ public class AuthController {
             return ApiResponse.ok(null);
         }
         return ApiResponse.ok(UserView.from(account));
+    }
+
+    @GetMapping("/csrf")
+    public ApiResponse<Map<String, String>> csrf(javax.servlet.http.HttpServletRequest request) {
+        org.springframework.security.web.csrf.CsrfToken token =
+                (org.springframework.security.web.csrf.CsrfToken) request.getAttribute(org.springframework.security.web.csrf.CsrfToken.class.getName());
+        Map<String, String> body = new HashMap<String, String>();
+        if (token != null) {
+            body.put("headerName", token.getHeaderName());
+            body.put("parameterName", token.getParameterName());
+            body.put("token", token.getToken());
+        }
+        return ApiResponse.ok(body);
     }
 }

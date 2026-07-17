@@ -19,6 +19,13 @@ public class SqlTuningTask {
     private String indexText;
     private String explainText;
     private String businessContext;
+    private String obVersion;
+    private String tableStatsText;
+    private String runtimeMetricsText;
+    private String businessInvariants;
+    private List<String> allowedActions;
+    private int inputImageCount;
+    private String planImageFacts;
     private boolean deepAnalysis;
     private TaskStatus status;
     private String statusMessage;
@@ -30,6 +37,14 @@ public class SqlTuningTask {
     private List<HarnessArtifact> artifacts = new ArrayList<HarnessArtifact>();
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private LocalDateTime queuedAt;
+    private String leaseOwner;
+    private LocalDateTime leaseUntil;
+    private int attemptCount;
+    private LocalDateTime nextAttemptAt;
+    private String lastErrorCode;
+    private long version;
+    private int queuePosition;
 
     public Long getId() {
         return id;
@@ -127,6 +142,62 @@ public class SqlTuningTask {
         this.businessContext = businessContext;
     }
 
+    public String getObVersion() {
+        return obVersion;
+    }
+
+    public void setObVersion(String obVersion) {
+        this.obVersion = obVersion;
+    }
+
+    public String getTableStatsText() {
+        return tableStatsText;
+    }
+
+    public void setTableStatsText(String tableStatsText) {
+        this.tableStatsText = tableStatsText;
+    }
+
+    public String getRuntimeMetricsText() {
+        return runtimeMetricsText;
+    }
+
+    public void setRuntimeMetricsText(String runtimeMetricsText) {
+        this.runtimeMetricsText = runtimeMetricsText;
+    }
+
+    public String getBusinessInvariants() {
+        return businessInvariants;
+    }
+
+    public void setBusinessInvariants(String businessInvariants) {
+        this.businessInvariants = businessInvariants;
+    }
+
+    public List<String> getAllowedActions() {
+        return allowedActions;
+    }
+
+    public void setAllowedActions(List<String> allowedActions) {
+        this.allowedActions = allowedActions;
+    }
+
+    public int getInputImageCount() {
+        return inputImageCount;
+    }
+
+    public void setInputImageCount(int inputImageCount) {
+        this.inputImageCount = inputImageCount;
+    }
+
+    public String getPlanImageFacts() {
+        return planImageFacts;
+    }
+
+    public void setPlanImageFacts(String planImageFacts) {
+        this.planImageFacts = planImageFacts;
+    }
+
     public boolean isDeepAnalysis() {
         return deepAnalysis;
     }
@@ -213,5 +284,69 @@ public class SqlTuningTask {
 
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public LocalDateTime getQueuedAt() {
+        return queuedAt;
+    }
+
+    public void setQueuedAt(LocalDateTime queuedAt) {
+        this.queuedAt = queuedAt;
+    }
+
+    public String getLeaseOwner() {
+        return leaseOwner;
+    }
+
+    public void setLeaseOwner(String leaseOwner) {
+        this.leaseOwner = leaseOwner;
+    }
+
+    public LocalDateTime getLeaseUntil() {
+        return leaseUntil;
+    }
+
+    public void setLeaseUntil(LocalDateTime leaseUntil) {
+        this.leaseUntil = leaseUntil;
+    }
+
+    public int getAttemptCount() {
+        return attemptCount;
+    }
+
+    public void setAttemptCount(int attemptCount) {
+        this.attemptCount = attemptCount;
+    }
+
+    public LocalDateTime getNextAttemptAt() {
+        return nextAttemptAt;
+    }
+
+    public void setNextAttemptAt(LocalDateTime nextAttemptAt) {
+        this.nextAttemptAt = nextAttemptAt;
+    }
+
+    public String getLastErrorCode() {
+        return lastErrorCode;
+    }
+
+    public void setLastErrorCode(String lastErrorCode) {
+        this.lastErrorCode = lastErrorCode;
+    }
+
+    public long getVersion() {
+        return version;
+    }
+
+    public void setVersion(long version) {
+        this.version = version;
+    }
+
+    public int getQueuePosition() {
+        return queuePosition;
+    }
+
+    public void setQueuePosition(int queuePosition) {
+        this.queuePosition = queuePosition;
     }
 }

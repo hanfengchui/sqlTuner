@@ -8,10 +8,8 @@ import com.codex.sqltuner.llm.LlmProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+import org.springframework.jdbc.core.JdbcTemplate;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -19,15 +17,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 验证 API Key 加密落盘：磁盘上不含明文 key，重启后能解密回用，前端视图不回传 key。
  */
 class ApiKeyEncryptionTest {
-    @TempDir
-    Path tempDir;
-
     @Test
     void apiKeyIsEncryptedOnDiskAndDecryptableAfterRestart() throws Exception {
         ObjectMapper objectMapper = objectMapper();
         LlmProperties properties = new LlmProperties();
-        PersistentStateStore store = store(properties, objectMapper);
-        ModelConfigService service = new ModelConfigService(store, properties, new ConfigurableLlmClient(properties, objectMapper));
+        JdbcTemplate jdbcTemplate = JdbcTestSupport.jdbcTemplate();
+        ModelConfigService service = new ModelConfigService(jdbcTemplate, properties, new ConfigurableLlmClient(properties, objectMapper), new CryptoSupport());
 
         ModelConfigUpdateRequest request = new ModelConfigUpdateRequest();
         request.setProvider("dashscope");
@@ -41,15 +36,13 @@ class ApiKeyEncryptionTest {
         assertThat(view.isApiKeyConfigured()).isTrue();
         assertThat(ModelConfigView.class.getDeclaredFields()).extracting("name").doesNotContain("apiKey");
 
-        // 磁盘文件不含明文 key。
-        String disk = new String(Files.readAllBytes(tempDir.resolve("sql-tuner-state.json")),
-                java.nio.charset.StandardCharsets.UTF_8);
-        assertThat(disk).doesNotContain("sk-super-secret-123456");
-        assertThat(disk).contains("enc:v1:");
+        // DB 中不含明文 key。
+        String stored = jdbcTemplate.queryForObject("SELECT encrypted_api_key FROM model_config WHERE id = 1", String.class);
+        assertThat(stored).doesNotContain("sk-super-secret-123456");
+        assertThat(stored).contains("enc:v1:");
 
         // 重启后能解密回用：runtime() 返回的 apiKey 是明文。
-        PersistentStateStore restarted = store(properties, objectMapper);
-        ModelConfigService restartedService = new ModelConfigService(restarted, properties, new ConfigurableLlmClient(properties, objectMapper));
+        ModelConfigService restartedService = new ModelConfigService(jdbcTemplate, properties, new ConfigurableLlmClient(properties, objectMapper), new CryptoSupport());
         ModelConfigRecord runtime = restartedService.runtime();
         assertThat(runtime.getApiKey()).isEqualTo("sk-super-secret-123456");
     }
@@ -66,14 +59,6 @@ class ApiKeyEncryptionTest {
         assertThat(crypto.encrypt("")).isEmpty();
         // 历史明文兼容：decrypt 遇到非加密前缀原样返回
         assertThat(crypto.decrypt("legacy-plain-key")).isEqualTo("legacy-plain-key");
-    }
-
-    private PersistentStateStore store(LlmProperties properties, ObjectMapper objectMapper) {
-        StorageProperties storageProperties = new StorageProperties();
-        storageProperties.setDataDir(tempDir.toString());
-        PersistentStateStore store = new PersistentStateStore(storageProperties, properties, objectMapper, new CryptoSupport());
-        store.init();
-        return store;
     }
 
     private ObjectMapper objectMapper() {

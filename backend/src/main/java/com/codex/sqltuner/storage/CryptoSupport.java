@@ -9,6 +9,7 @@ import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Base64;
 
@@ -43,9 +44,9 @@ public class CryptoSupport {
                     log.info("cryptoSupport init result 结果: keySource: env");
                     return new SecretKeySpec(decoded, "AES");
                 }
-                log.warn("cryptoSupport init result 结果: keySource: env-invalid-length, length: {}", decoded.length);
+                throw new IllegalStateException(ENV_KEY + " 解码后必须恰好为 32 字节");
             } catch (IllegalArgumentException e) {
-                log.warn("cryptoSupport init result 结果: keySource: env-invalid-base64, reason: {}", e.getMessage());
+                throw new IllegalStateException(ENV_KEY + " 必须是合法 Base64", e);
             }
         }
         // 缺省：机器绑定派生。生产建议显式提供 SQL_TUNER_DATA_KEY。
@@ -60,13 +61,8 @@ public class CryptoSupport {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             return digest.digest(factor.getBytes(StandardCharsets.UTF_8));
-        } catch (Exception e) {
-            // SHA-256 一定存在；兜底用固定字节，至少不抛错阻断启动。
-            byte[] fallback = new byte[32];
-            for (int i = 0; i < fallback.length; i++) {
-                fallback[i] = (byte) (factor.hashCode() >> (i % 4 * 8));
-            }
-            return fallback;
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("当前 Java 运行时缺少 SHA-256，无法安全派生数据加密密钥", e);
         }
     }
 

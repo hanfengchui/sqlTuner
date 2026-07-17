@@ -27,8 +27,9 @@ public class AdminConfigController {
     }
 
     @GetMapping("/health")
-    public ApiResponse<RuntimeHealthView> health() {
-        log.info("health param 入参: public: true");
+    public ApiResponse<RuntimeHealthView> health(HttpSession session) {
+        CurrentUser.requireAdmin(session);
+        log.info("health param 入参: admin: true");
         return ApiResponse.ok(modelConfigService.healthView());
     }
 

@@ -1,7 +1,29 @@
 server:
   port: ${SERVER_PORT:8080}
+  tomcat:
+    threads:
+      max: ${SERVER_TOMCAT_THREADS_MAX:200}
+      min-spare: ${SERVER_TOMCAT_THREADS_MIN_SPARE:100}
+    max-connections: ${SERVER_TOMCAT_MAX_CONNECTIONS:512}
+    accept-count: ${SERVER_TOMCAT_ACCEPT_COUNT:256}
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        secure: ${SESSION_COOKIE_SECURE:false}
+        same-site: lax
 
 spring:
+  datasource:
+    url: ${SQL_TUNER_DB_URL:jdbc:mysql://mysql:3306/sql_tuner?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai}
+    username: ${SQL_TUNER_DB_USERNAME:sql_tuner}
+    password: ${SQL_TUNER_DB_PASSWORD:}
+    driver-class-name: ${SQL_TUNER_DB_DRIVER:com.mysql.cj.jdbc.Driver}
+    hikari:
+      maximum-pool-size: ${SQL_TUNER_DB_POOL_SIZE:10}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
   jackson:
     default-property-inclusion: non_null
   mvc:
@@ -14,9 +36,21 @@ llm:
   model: ${LLM_MODEL:qwen-plus}
   api-key: ${DASHSCOPE_API_KEY:}
   timeout-ms: ${LLM_TIMEOUT_MS:30000}
+  mock-delay-ms: ${LLM_MOCK_DELAY_MS:0}
 
 app:
   cors:
-    allowed-origin: ${APP_CORS_ALLOWED_ORIGIN:http://localhost:5173}
-  storage:
-    data-dir: ${SQL_TUNER_DATA_DIR:./data}
+    allowed-origin: ${APP_CORS_ALLOWED_ORIGIN:https://sql.pazhaug.info}
+  queue:
+    worker-count: ${SQL_TUNER_WORKERS:4}
+    max-running: ${SQL_TUNER_LLM_MAX_PARALLEL:4}
+    max-queued-global: ${SQL_TUNER_QUEUE_MAX_GLOBAL:100}
+    max-queued-per-user: ${SQL_TUNER_QUEUE_MAX_PER_USER:10}
+    lease-seconds: ${SQL_TUNER_QUEUE_LEASE_SECONDS:90}
+    heartbeat-seconds: ${SQL_TUNER_QUEUE_HEARTBEAT_SECONDS:15}
+  legacy-import:
+    enabled: ${SQL_TUNER_LEGACY_IMPORT_ENABLED:false}
+    dry-run: ${SQL_TUNER_LEGACY_IMPORT_DRY_RUN:true}
+    path: ${SQL_TUNER_LEGACY_IMPORT_PATH:}
+    admin-password: ${SQL_TUNER_ADMIN_PASSWORD:}
+    user-password: ${SQL_TUNER_USER_PASSWORD:}

@@ -11,6 +11,7 @@ public class LlmProperties {
     private String model = "qwen-plus";
     private String apiKey;
     private int timeoutMs = 30000;
+    private int mockDelayMs;
 
     public String getProvider() {
         return provider;
@@ -50,6 +51,14 @@ public class LlmProperties {
 
     public void setTimeoutMs(int timeoutMs) {
         this.timeoutMs = timeoutMs;
+    }
+
+    public int getMockDelayMs() {
+        return mockDelayMs;
+    }
+
+    public void setMockDelayMs(int mockDelayMs) {
+        this.mockDelayMs = mockDelayMs;
     }
 
     public void apply(com.codex.sqltuner.storage.ModelConfigRecord record) {

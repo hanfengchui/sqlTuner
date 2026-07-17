@@ -4,6 +4,9 @@ public class ApiResponse<T> {
     private boolean success;
     private String message;
     private T data;
+    private String code;
+    private String requestId;
+    private Object details;
 
     public ApiResponse() {
     }
@@ -20,6 +23,14 @@ public class ApiResponse<T> {
 
     public static <T> ApiResponse<T> fail(String message) {
         return new ApiResponse<T>(false, message, null);
+    }
+
+    public static <T> ApiResponse<T> fail(String code, String message, String requestId, Object details) {
+        ApiResponse<T> response = new ApiResponse<T>(false, message, null);
+        response.setCode(code);
+        response.setRequestId(requestId);
+        response.setDetails(details);
+        return response;
     }
 
     public boolean isSuccess() {
@@ -44,5 +55,29 @@ public class ApiResponse<T> {
 
     public void setData(T data) {
         this.data = data;
+    }
+
+    public String getCode() {
+        return code;
+    }
+
+    public void setCode(String code) {
+        this.code = code;
+    }
+
+    public String getRequestId() {
+        return requestId;
+    }
+
+    public void setRequestId(String requestId) {
+        this.requestId = requestId;
+    }
+
+    public Object getDetails() {
+        return details;
+    }
+
+    public void setDetails(Object details) {
+        this.details = details;
     }
 }

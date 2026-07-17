@@ -2,26 +2,22 @@ package com.codex.sqltuner.config;
 
 import com.codex.sqltuner.llm.LlmProperties;
 import com.codex.sqltuner.llm.ConfigurableLlmClient;
-import com.codex.sqltuner.storage.PersistentStateStore;
-import com.codex.sqltuner.storage.StorageProperties;
+import com.codex.sqltuner.storage.CryptoSupport;
+import com.codex.sqltuner.storage.JdbcTestSupport;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-
-import java.nio.file.Path;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ModelConfigServiceTest {
-    @TempDir
-    Path tempDir;
-
     @Test
     void updateStoresApiKeyWithoutReturningPlaintext() {
         LlmProperties properties = new LlmProperties();
         ObjectMapper objectMapper = objectMapper();
-        ModelConfigService service = new ModelConfigService(stateStore(properties, objectMapper), properties, new ConfigurableLlmClient(properties, objectMapper));
+        JdbcTemplate jdbcTemplate = JdbcTestSupport.jdbcTemplate();
+        ModelConfigService service = new ModelConfigService(jdbcTemplate, properties, new ConfigurableLlmClient(properties, objectMapper), new CryptoSupport());
         ModelConfigUpdateRequest request = new ModelConfigUpdateRequest();
         request.setProvider("dashscope");
         request.setBaseUrl("https://dashscope.aliyuncs.com/compatible-mode/v1");
@@ -39,25 +35,19 @@ class ModelConfigServiceTest {
     }
 
     @Test
-    void healthViewMarksMissingKeyAsMock() {
+    void healthViewMarksRealProviderWithoutKeyAsMisconfigured() {
         LlmProperties properties = new LlmProperties();
         properties.setProvider("dashscope");
         ObjectMapper objectMapper = objectMapper();
-        ModelConfigService service = new ModelConfigService(stateStore(properties, objectMapper), properties, new ConfigurableLlmClient(properties, objectMapper));
+        JdbcTemplate jdbcTemplate = JdbcTestSupport.jdbcTemplate();
+        jdbcTemplate.update("UPDATE model_config SET provider = 'dashscope', model = 'qwen-plus', encrypted_api_key = NULL WHERE id = 1");
+        ModelConfigService service = new ModelConfigService(jdbcTemplate, properties, new ConfigurableLlmClient(properties, objectMapper), new CryptoSupport());
 
         RuntimeHealthView health = service.healthView();
 
         assertThat(health.getProvider()).isEqualTo("dashscope");
-        assertThat(health.getMockState()).isEqualTo("mock");
+        assertThat(health.getMockState()).isEqualTo("missing-key");
         assertThat(health.isApiKeyConfigured()).isFalse();
-    }
-
-    private PersistentStateStore stateStore(LlmProperties properties, ObjectMapper objectMapper) {
-        StorageProperties storageProperties = new StorageProperties();
-        storageProperties.setDataDir(tempDir.toString());
-        PersistentStateStore stateStore = new PersistentStateStore(storageProperties, properties, objectMapper, new com.codex.sqltuner.storage.CryptoSupport());
-        stateStore.init();
-        return stateStore;
     }
 
     private ObjectMapper objectMapper() {

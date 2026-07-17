@@ -1,5 +1,6 @@
 package com.codex.sqltuner.llm;
 
+import com.codex.sqltuner.config.QueueProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -15,27 +16,39 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
 @Component
 public class ConfigurableLlmClient implements LlmClient {
     private static final Logger log = LoggerFactory.getLogger(ConfigurableLlmClient.class);
-    // 限制同时进行的真实模型调用数，避免高并发打爆线程池 + 撞模型侧限流雪崩。
-    // mock 不占许可。许可数与线程池 maxPoolSize 协调，保守取 8。
-    private static final int MAX_CONCURRENT_LLM = 8;
-    private final Semaphore llmSlots = new Semaphore(MAX_CONCURRENT_LLM, true);
+    // mock 不占许可；真实模型并发默认与持久化 worker 上限一致（生产为 4）。
+    private final int maxConcurrentLlm;
+    private final Semaphore llmSlots;
     private final LlmProperties properties;
     private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate;
     private final HttpComponentsClientHttpRequestFactory requestFactory;
 
     public ConfigurableLlmClient(LlmProperties properties, ObjectMapper objectMapper) {
+        this(properties, objectMapper, 4);
+    }
+
+    @Autowired
+    public ConfigurableLlmClient(LlmProperties properties, ObjectMapper objectMapper, QueueProperties queueProperties) {
+        this(properties, objectMapper, Math.max(1, queueProperties.getMaxRunning()));
+    }
+
+    private ConfigurableLlmClient(LlmProperties properties, ObjectMapper objectMapper, int maxConcurrentLlm) {
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.maxConcurrentLlm = maxConcurrentLlm;
+        this.llmSlots = new Semaphore(maxConcurrentLlm, true);
         this.requestFactory = buildRequestFactory();
         this.restTemplate = new RestTemplate(requestFactory);
     }
@@ -44,13 +57,19 @@ public class ConfigurableLlmClient implements LlmClient {
     public LlmResponse analyze(LlmRequest request) {
         long start = System.currentTimeMillis();
         String provider = properties.getProvider() == null ? "mock" : properties.getProvider();
-        log.info("analyze request 请求: provider: {}, model: {}, promptLength: {}, deepAnalysis: {}",
-                provider, properties.getModel(), request.getUserPrompt() == null ? 0 : request.getUserPrompt().length(), request.isDeepAnalysis());
-        // 配置性 mock：provider=mock 或缺 key，正常返回 mock（内容带显眼标记，不会被误当真模型）。
-        if ("mock".equalsIgnoreCase(provider) || properties.getApiKey() == null || properties.getApiKey().trim().isEmpty()) {
+        String model = hasText(request.getModelOverride()) ? request.getModelOverride() : properties.getModel();
+        log.info("analyze request 请求: provider: {}, model: {}, promptLength: {}, deepAnalysis: {}, imageCount: {}",
+                provider, model, request.getUserPrompt() == null ? 0 : request.getUserPrompt().length(),
+                request.isDeepAnalysis(), request.getImages() == null ? 0 : request.getImages().size());
+        // 只有明确选择 provider=mock 才返回标记过的模拟结果。
+        if ("mock".equalsIgnoreCase(provider)) {
+            applyMockDelay();
             String content = mockResponse(request);
-            log.info("analyze response 响应: provider: mock, reason: configured-mock-or-no-key, elapsedMs: {}", System.currentTimeMillis() - start);
+            log.info("analyze response 响应: provider: mock, reason: explicitly-configured, elapsedMs: {}", System.currentTimeMillis() - start);
             return new LlmResponse("mock", properties.getModel(), content, System.currentTimeMillis() - start, true);
+        }
+        if (properties.getApiKey() == null || properties.getApiKey().trim().isEmpty()) {
+            throw new LlmCallException("模型 API Key 未配置，真实 provider 不允许降级为 mock", null);
         }
         // 真实调用路径：限并发，避免高并发打爆线程池 + 撞模型限流雪崩。
         boolean acquired = false;
@@ -59,7 +78,7 @@ public class ConfigurableLlmClient implements LlmClient {
                 // 等不到许可就抛异常让任务失败，而不是无限排队占满队列。
                 long timeoutMs = properties.getTimeoutMs() <= 0 ? 30000L : properties.getTimeoutMs();
                 if (!llmSlots.tryAcquire(timeoutMs, TimeUnit.MILLISECONDS)) {
-                    throw new LlmCallException("模型调用并发已达上限 " + MAX_CONCURRENT_LLM + "，请稍后重试", null);
+                    throw new LlmCallException("模型调用并发已达上限 " + maxConcurrentLlm + "，请稍后重试", null);
                 }
                 acquired = true;
             } catch (InterruptedException e) {
@@ -68,18 +87,7 @@ public class ConfigurableLlmClient implements LlmClient {
             }
             refreshTimeouts();
 
-            ObjectNode body = objectMapper.createObjectNode();
-            body.put("model", properties.getModel());
-            ArrayNode messages = body.putArray("messages");
-            ObjectNode system = objectMapper.createObjectNode();
-            system.put("role", "system");
-            system.put("content", request.getSystemPrompt());
-            ObjectNode user = objectMapper.createObjectNode();
-            user.put("role", "user");
-            user.put("content", request.getUserPrompt());
-            messages.add(system);
-            messages.add(user);
-            body.put("temperature", request.isDeepAnalysis() ? 0.2 : 0.1);
+            ObjectNode body = buildChatRequestBody(request);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -89,11 +97,14 @@ public class ConfigurableLlmClient implements LlmClient {
             if (url != null && !url.endsWith("/chat/completions")) {
                 url = url.replaceAll("/+$", "") + "/chat/completions";
             }
-            ResponseEntity<String> response = restTemplate.postForEntity(url, new HttpEntity<String>(body.toString(), headers), String.class);
+            ResponseEntity<String> response = restTemplate.postForEntity(
+                    url,
+                    new HttpEntity<byte[]>(body.toString().getBytes(StandardCharsets.UTF_8), headers),
+                    String.class);
             String content = extractContent(response.getBody(), response.getStatusCodeValue());
             log.info("analyze response 响应: status: {}, elapsedMs: {}, contentLength: {}",
                     response.getStatusCodeValue(), System.currentTimeMillis() - start, content == null ? 0 : content.length());
-            return new LlmResponse(provider, properties.getModel(), content, System.currentTimeMillis() - start, false);
+            return new LlmResponse(provider, model, content, System.currentTimeMillis() - start, false);
         } catch (LlmCallException e) {
             // extractContent 抛出的业务错误，原样上抛，不再降级 mock。
             throw e;
@@ -106,6 +117,19 @@ public class ConfigurableLlmClient implements LlmClient {
             if (acquired) {
                 llmSlots.release();
             }
+        }
+    }
+
+    private void applyMockDelay() {
+        int delayMs = Math.max(0, properties.getMockDelayMs());
+        if (delayMs == 0) {
+            return;
+        }
+        try {
+            Thread.sleep(delayMs);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new LlmCallException("Fake LLM 延迟被中断", e);
         }
     }
 
@@ -139,6 +163,37 @@ public class ConfigurableLlmClient implements LlmClient {
                 ? abbreviate(responseBody, 200)
                 : "code=" + code + ", message=" + message;
         throw new LlmCallException("模型返回错误信封, status: " + statusCode + ", " + detail, null);
+    }
+
+    ObjectNode buildChatRequestBody(LlmRequest request) {
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("model", hasText(request.getModelOverride()) ? request.getModelOverride() : properties.getModel());
+        ArrayNode messages = body.putArray("messages");
+        ObjectNode system = objectMapper.createObjectNode();
+        system.put("role", "system");
+        system.put("content", request.getSystemPrompt());
+        ObjectNode user = objectMapper.createObjectNode();
+        user.put("role", "user");
+        if (request.hasImages()) {
+            ArrayNode content = user.putArray("content");
+            ObjectNode text = objectMapper.createObjectNode();
+            text.put("type", "text");
+            text.put("text", request.getUserPrompt());
+            content.add(text);
+            for (LlmRequestImage image : request.getImages()) {
+                ObjectNode imagePart = objectMapper.createObjectNode();
+                imagePart.put("type", "image_url");
+                ObjectNode imageUrl = imagePart.putObject("image_url");
+                imageUrl.put("url", image.getDataUrl());
+                content.add(imagePart);
+            }
+        } else {
+            user.put("content", request.getUserPrompt());
+        }
+        messages.add(system);
+        messages.add(user);
+        body.put("temperature", request.isDeepAnalysis() ? 0.2 : 0.1);
+        return body;
     }
 
     private String abbreviate(String value, int max) {
@@ -182,14 +237,44 @@ public class ConfigurableLlmClient implements LlmClient {
      * 避免被误当成真实模型建议直接执行。schema 与真实输出一致以保证前端可解析。
      */
     private String mockResponse(LlmRequest request) {
+        if (request.hasImages()) {
+            return "{"
+                    + "\"readable\":true,"
+                    + "\"operators\":[\"MOCK_PLAN_IMAGE\"],"
+                    + "\"tables\":[],"
+                    + "\"rowEstimates\":[],"
+                    + "\"warnings\":[\"mock vision output\"],"
+                    + "\"rawTextSummary\":\"【示例·非真实视觉输出】图片已进入视觉抽取流程。\""
+                    + "}";
+        }
+        String prompt = request.getUserPrompt() == null ? "" : request.getUserPrompt();
+        boolean sqlOnly = prompt.contains("contextCompleteness: SQL_ONLY") || prompt.contains("\"completeness\":\"SQL_ONLY\"");
+        boolean review = prompt.contains("独立审查器");
+        String verdict = review ? "PASS" : "NOT_REQUESTED";
+        String outcome = sqlOnly ? "NEEDS_INPUT" : "ADVICE";
+        // mock 只验证工作流，不编造具体改写或索引对象；确定性建议必须来自真实模型和用户证据。
+        String rewriteCandidates = "[]";
+        String indexCandidates = "[]";
         return "{"
-                + "\"summary\":\"【示例·非真实模型输出】已完成离线规则分析。当前使用 mock LLM，配置 DASHSCOPE_API_KEY 后可调用千问生成更细建议。\","
-                + "\"findings\":[{\"title\":\"【示例】优先检查执行计划中的扫描行数和索引命中情况\",\"evidence\":\"规则扫描结果和手工上下文\",\"impact\":\"可能影响查询延迟\",\"confidence\":\"medium\"}],"
-                + "\"rewriteSql\":\"-- 【示例占位】请配置真实模型后再参考改写建议\\n\","
-                + "\"indexSuggestions\":[{\"indexName\":\"idx_示例_占位_请勿使用\",\"columns\":[\"filter_column\",\"sort_column\"],\"benefit\":\"减少过滤后排序成本\",\"risk\":\"增加写入维护成本\",\"validation\":\"EXPLAIN 对比 type/key/rows\"}],"
-                + "\"validationSteps\":[\"在测试库对比优化前后 EXPLAIN\",\"记录 rows、key、Extra、耗时\",\"确认结果集语义一致\"],"
-                + "\"riskWarnings\":[\"本次为 mock 示例输出，未调用真实模型，请勿直接用于生产\",\"不要直接在生产创建索引，先评估写入成本和磁盘空间\"],"
+                + "\"outcome\":\"" + outcome + "\","
+                + "\"summary\":\"【示例·非真实模型输出】已完成离线规则分析。当前明确配置为 mock LLM，配置真实 provider 与 API Key 后可调用模型生成更细建议。\","
+                + "\"contextAssessment\":{\"completeness\":\"" + (sqlOnly ? "SQL_ONLY" : "SQL_SCHEMA_INDEX") + "\",\"maxConfidence\":\"" + (sqlOnly ? "LOW" : "MEDIUM") + "\",\"availableEvidence\":[\"E_SQL\"],\"missingInformation\":[\"表结构 DDL\",\"现有索引定义\",\"完整 EXPLAIN\",\"表统计信息\",\"OceanBase 版本\"],\"policyNotes\":[\"mock 输出遵守证据门禁\"]},"
+                + "\"evidenceCatalog\":[{\"id\":\"E_SQL\",\"source\":\"USER_SQL\",\"summary\":\"用户提供的脱敏 SQL\",\"trustLevel\":\"HIGH\"},{\"id\":\"E_SCHEMA\",\"source\":\"USER_SCHEMA\",\"summary\":\"用户提供的表结构上下文\",\"trustLevel\":\"MEDIUM\"},{\"id\":\"E_INDEX\",\"source\":\"USER_INDEX\",\"summary\":\"用户提供的索引上下文\",\"trustLevel\":\"MEDIUM\"},{\"id\":\"E_EXPLAIN\",\"source\":\"USER_EXPLAIN\",\"summary\":\"用户提供的执行计划上下文\",\"trustLevel\":\"MEDIUM\"}],"
+                + "\"diagnoses\":[{\"severity\":\"WARN\",\"title\":\"【示例】优先检查扫描行数、索引命中和谓词形态\",\"impact\":\"可能影响查询延迟\",\"confidence\":\"LOW\",\"precondition\":\"mock 输出仅用于界面和流程验证\",\"evidenceRefs\":[\"E_SQL\"]}],"
+                + "\"rewriteCandidates\":" + rewriteCandidates + ","
+                + "\"indexCandidates\":" + indexCandidates + ","
+                + "\"validationPlan\":[{\"action\":\"在测试库对比优化前后 EXPLAIN\",\"expectedSignal\":\"key/rows/Extra 改善且结果集一致\",\"evidenceRefs\":[\"E_SQL\"]}],"
+                + "\"missingInformation\":[\"表行数\",\"现有索引\",\"完整 EXPLAIN\",\"OceanBase 版本\"],"
+                + "\"safetyWarnings\":[\"本次为 mock 示例输出，未调用真实模型，请勿直接用于生产\",\"不要直接在生产创建索引，先评估写入成本和磁盘空间\"],"
+                + "\"review\":{\"verdict\":\"" + verdict + "\",\"notes\":\"mock review\"},"
+                + "\"findings\":[{\"title\":\"【示例】优先检查执行计划中的扫描行数和索引命中情况\",\"evidence\":\"E_SQL\",\"impact\":\"可能影响查询延迟\",\"confidence\":\"LOW\"}],"
+                + "\"validationSteps\":[\"在测试库对比优化前后 EXPLAIN\"],"
+                + "\"riskWarnings\":[\"本次为 mock 示例输出，未调用真实模型，请勿直接用于生产\"],"
                 + "\"needMoreInfo\":[\"表行数\",\"现有索引\",\"完整 EXPLAIN\"]"
                 + "}";
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 }

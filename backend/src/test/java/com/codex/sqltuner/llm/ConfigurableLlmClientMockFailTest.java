@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -31,16 +33,15 @@ class ConfigurableLlmClientMockFailTest {
     }
 
     @Test
-    void missingKeyReturnsMockNotThrows() {
-        // 缺 key 时走配置性 mock，不抛异常（行为兼容），但内容带标记。
+    void realProviderWithoutKeyFailsInsteadOfReturningMock() {
         LlmProperties properties = new LlmProperties();
         properties.setProvider("dashscope");
         properties.setApiKey("");
         ConfigurableLlmClient client = new ConfigurableLlmClient(properties, objectMapper);
 
-        LlmResponse response = client.analyze(new LlmRequest("system", "user", true));
-        assertThat(response.isMock()).isTrue();
-        assertThat(response.getContent()).contains("【示例·非真实模型输出】");
+        assertThatThrownBy(() -> client.analyze(new LlmRequest("system", "user", true)))
+                .isInstanceOf(LlmCallException.class)
+                .hasMessageContaining("API Key 未配置");
     }
 
     @Test
@@ -62,5 +63,28 @@ class ConfigurableLlmClientMockFailTest {
         })
                 .isInstanceOf(LlmCallException.class)
                 .hasMessageContaining("模型调用失败");
+    }
+
+    @Test
+    void imageRequestBuildsOpenAiCompatibleContentArrayAndModelOverride() {
+        LlmProperties properties = new LlmProperties();
+        properties.setProvider("dashscope");
+        properties.setModel("qwen3.7-max");
+        ConfigurableLlmClient client = new ConfigurableLlmClient(properties, objectMapper);
+
+        JsonNode body = client.buildChatRequestBody(new LlmRequest(
+                "system",
+                "extract plan",
+                false,
+                "qwen3-vl-plus",
+                Arrays.asList(new LlmRequestImage("data:image/png;base64,iVBORw0KGgo="))));
+
+        assertThat(body.path("model").asText()).isEqualTo("qwen3-vl-plus");
+        JsonNode content = body.path("messages").get(1).path("content");
+        assertThat(content.isArray()).isTrue();
+        assertThat(content.get(0).path("type").asText()).isEqualTo("text");
+        assertThat(content.get(0).path("text").asText()).isEqualTo("extract plan");
+        assertThat(content.get(1).path("type").asText()).isEqualTo("image_url");
+        assertThat(content.get(1).path("image_url").path("url").asText()).startsWith("data:image/png;base64,");
     }
 }

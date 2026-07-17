@@ -1,0 +1,157 @@
+package com.codex.sqltuner.tuning;
+
+import com.codex.sqltuner.config.QueueProperties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+
+import javax.annotation.PreDestroy;
+import java.time.LocalDateTime;
+import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicInteger;
+
+@Component
+@ConditionalOnProperty(name = "app.legacy-import.enabled", havingValue = "false", matchIfMissing = true)
+public class TuningQueueWorker {
+    private static final Logger log = LoggerFactory.getLogger(TuningQueueWorker.class);
+    private final TuningTaskRepository taskRepository;
+    private final TuningHarnessService harnessService;
+    private final TaskEventBroker eventBroker;
+    private final QueueProperties queueProperties;
+    private final ExecutorService executorService;
+    private final Semaphore permits;
+    private final String leaseOwner = "sql-tuner-" + UUID.randomUUID().toString();
+
+    public TuningQueueWorker(TuningTaskRepository taskRepository,
+                             TuningHarnessService harnessService,
+                             TaskEventBroker eventBroker,
+                             QueueProperties queueProperties) {
+        this.taskRepository = taskRepository;
+        this.harnessService = harnessService;
+        this.eventBroker = eventBroker;
+        this.queueProperties = queueProperties;
+        this.permits = new Semaphore(queueProperties.getWorkerCount());
+        this.executorService = Executors.newFixedThreadPool(queueProperties.getWorkerCount(), new ThreadFactory() {
+            private final AtomicInteger sequence = new AtomicInteger();
+
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread thread = new Thread(r, "tuning-db-worker-" + sequence.incrementAndGet());
+                thread.setDaemon(true);
+                return thread;
+            }
+        });
+    }
+
+    @Scheduled(fixedDelay = 1000L)
+    public void dispatch() {
+        taskRepository.requeueExpiredLeases();
+        while (permits.tryAcquire()) {
+            final SqlTuningTask task = taskRepository.claimNext(leaseOwner);
+            if (task == null) {
+                permits.release();
+                return;
+            }
+            eventBroker.publish(task);
+            executorService.submit(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        harnessService.run(task);
+                        SqlTuningTask saved = taskRepository.get(task.getId());
+                        if (saved.getLeaseOwner() != null) {
+                            taskRepository.releaseLease(saved);
+                            eventBroker.publish(taskRepository.get(task.getId()));
+                        }
+                    } catch (Exception e) {
+                        handleFailure(task, e);
+                    } finally {
+                        permits.release();
+                    }
+                }
+            });
+        }
+    }
+
+    @Scheduled(fixedDelayString = "${app.queue.heartbeat-seconds:15}000")
+    public void heartbeat() {
+        // 长模型调用必须持续续租，避免 90 秒后被其他 worker 重复领取。
+        int renewed = taskRepository.renewLeases(leaseOwner);
+        if (renewed > 0) {
+            log.info("heartbeat result 结果: leaseOwner: {}, renewed: {}", leaseOwner, renewed);
+        }
+        taskRepository.requeueExpiredLeases();
+    }
+
+    private void handleFailure(SqlTuningTask task, Exception e) {
+        // 异常消息可能包含模型原文或用户 SQL；日志只记录类型和任务 ID。
+        log.error("runQueuedTask taskId: {} errorType: {}", task.getId(), e.getClass().getSimpleName());
+        SqlTuningTask saved = taskRepository.get(task.getId());
+        boolean retry = saved.getAttemptCount() < 3 && isRetryable(e);
+        String detail = safeFailureDetail(e);
+        SqlTuningTask updated = taskRepository.markAfterFailure(
+                task.getId(),
+                retry ? TaskStatus.QUEUED : TaskStatus.FAILED,
+                retry ? "临时错误，等待重试: " + detail : "调优失败: " + detail,
+                retry ? "TASK_RETRYABLE" : "TASK_FAILED",
+                retry ? LocalDateTime.now().plusSeconds(5L * saved.getAttemptCount()) : null);
+        eventBroker.publish(updated);
+    }
+
+    private String safeFailureDetail(Exception error) {
+        if (error == null) {
+            return "未知错误";
+        }
+        String message = error.getMessage();
+        if (message == null || message.trim().isEmpty()) {
+            return error.getClass().getSimpleName();
+        }
+        // 去除换行，截断到数据库字段安全范围；parse/model 边界已避免把原始内容放入 message。
+        String normalized = message.replaceAll("[\\r\\n\\t]+", " ").replaceAll("\\s{2,}", " ").trim();
+        return normalized.length() <= 400 ? normalized : normalized.substring(0, 400) + "...";
+    }
+
+    private boolean isRetryable(Exception e) {
+        Throwable current = e;
+        while (current != null) {
+            // JSON 解析异常继承 IOException，但属于确定性格式失败，绝不能按网络错误重跑整条任务。
+            if (current instanceof com.fasterxml.jackson.core.JsonProcessingException) {
+                return false;
+            }
+            if (current instanceof org.springframework.web.client.ResourceAccessException
+                    || current instanceof java.net.SocketTimeoutException
+                    || current instanceof java.net.ConnectException
+                    || current instanceof java.net.UnknownHostException
+                    || current instanceof javax.net.ssl.SSLException) {
+                return true;
+            }
+            if (current instanceof org.springframework.web.client.HttpStatusCodeException) {
+                int status = ((org.springframework.web.client.HttpStatusCodeException) current).getRawStatusCode();
+                return status == 429 || status == 502 || status == 503 || status == 504;
+            }
+            // 只信任 LLM 调用边界生成的错误消息；不能扫描解析器/用户数据中的 network 等普通文本。
+            if (current instanceof com.codex.sqltuner.llm.LlmCallException) {
+                String message = current.getMessage() == null ? "" : current.getMessage().toLowerCase(java.util.Locale.ROOT);
+                if (message.contains("429") || message.contains("502") || message.contains("503")
+                        || message.contains("504") || message.contains("timeout") || message.contains("timed out")
+                        || message.contains("connection reset") || message.contains("connection refused")
+                        || message.contains("i/o error")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        executorService.shutdownNow();
+    }
+}

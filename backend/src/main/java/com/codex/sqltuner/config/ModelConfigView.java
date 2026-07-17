@@ -6,7 +6,7 @@ public class ModelConfigView {
     private String model;
     private Integer timeoutMs;
     private boolean apiKeyConfigured;
-    // mockState: "mock"=当前走 mock 或缺 key；"ready"=已配置真实 provider+key。
+    // mockState: "mock"=明确配置 mock；"ready"=真实 provider+key；"missing-key"=真实 provider 缺少凭据。
     // 前端据此在顶部展示醒目横幅，避免 mock 输出被当成真实模型建议。
     private String mockState;
 
