@@ -92,6 +92,21 @@ class StrictResultValidatorSemanticTest {
         assertThat(outcome.summary()).contains("analysisNarrative.sections 不得直接包含完整 SQL");
     }
 
+    @Test
+    void rejectsNarrativeThatExceedsConciseConversationLimit() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.getAnalysisNarrative().getSections().add(section("EVIDENCE", "补充依据一"));
+        result.getAnalysisNarrative().getSections().add(section("ACTION", "补充依据二"));
+        result.getAnalysisNarrative().getSections().add(section("VALIDATION", "补充依据三"));
+
+        ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isFalse();
+        assertThat(outcome.summary()).contains("1 至 3 个段落");
+    }
+
     private ValidationOutcome validateMysql(String originalSql, String rewriteSql) {
         return validate(originalSql, rewriteSql, SqlDialect.OB_MYSQL);
     }
@@ -140,16 +155,21 @@ class StrictResultValidatorSemanticTest {
     }
 
     private AnalysisNarrative narrative() {
-        NarrativeSection section = new NarrativeSection();
-        section.setKind("EVIDENCE");
-        section.setTitle("可验证依据");
-        section.setBody("改写候选必须保持原 SQL 的业务语义。");
-        section.setEvidenceRefs(Collections.singletonList("E1"));
+        NarrativeSection section = section("EVIDENCE", "可验证依据");
 
         AnalysisNarrative narrative = new AnalysisNarrative();
         narrative.setConclusion("该候选仅用于验证语义守卫是否允许等价改写。");
         narrative.setSections(new ArrayList<NarrativeSection>(Collections.singletonList(section)));
         return narrative;
+    }
+
+    private NarrativeSection section(String kind, String title) {
+        NarrativeSection section = new NarrativeSection();
+        section.setKind(kind);
+        section.setTitle(title);
+        section.setBody("改写候选必须保持原 SQL 的业务语义。");
+        section.setEvidenceRefs(Collections.singletonList("E1"));
+        return section;
     }
 
     private ValidationStep validationStep() {

@@ -5,10 +5,9 @@ import type { AnalysisNarrativeSection, Diagnosis, IndexCandidate, RewriteCandid
 interface TuningAdviceMessageProps {
   task?: SqlTuningTask;
   progressive?: boolean;
-  showDetailLink?: boolean;
 }
 
-export function TuningAdviceMessage({ task, progressive = true, showDetailLink = true }: TuningAdviceMessageProps) {
+export function TuningAdviceMessage({ task, progressive = true }: TuningAdviceMessageProps) {
   const advice = useMemo(() => normalizeAdvice(task), [task]);
   const sections = useMemo(() => {
     const next: string[] = [];
@@ -54,12 +53,9 @@ export function TuningAdviceMessage({ task, progressive = true, showDetailLink =
           <Sparkles size={17} />
           <strong>SQL 调优助手</strong>
         </div>
-        <div className="advice-header-actions">
-          {showDetailLink && task.id && <a className="advice-detail-link" href={`/tasks/${task.id}`} aria-label="查看完整依据" title="查看完整依据"><FileSearch size={15} /></a>}
-          <span className={advice.outcome === "NEEDS_INPUT" ? "advice-state needs-input" : "advice-state"}>
-            {advice.outcome === "NEEDS_INPUT" ? "需要补充" : "已校验"}
-          </span>
-        </div>
+        <span className={advice.outcome === "NEEDS_INPUT" ? "advice-state needs-input" : "advice-state"}>
+          {advice.outcome === "NEEDS_INPUT" ? "需要补充" : "已校验"}
+        </span>
       </header>
 
       <p className="advice-summary">{advice.narrative?.conclusion || advice.summary}</p>

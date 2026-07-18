@@ -168,6 +168,7 @@ describe("TuningAdviceMessage", () => {
     expect(screen.queryByText("重点问题")).not.toBeInTheDocument();
     expect(screen.queryByText("旧诊断不应重复")).not.toBeInTheDocument();
     expect(screen.queryByText("E_SQL")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "查看完整依据" })).not.toBeInTheDocument();
   });
 
   it("streams only task stages while validation is still in progress", () => {

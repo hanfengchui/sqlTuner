@@ -22,7 +22,8 @@ class PromptCompilerSafetyTest {
                 .contains("不能进入 evidenceRefs")
                 .contains("只有截图而没有可解析计划文本时仍视为缺少文本 EXPLAIN")
                 .contains("analysisNarrative 是面向工程师的主答案")
-                .contains("不要把它压缩成一句话")
+                .contains("结论先行")
+                .contains("1 至 3 个简短段落")
                 .contains("不得直接包含完整改写 SQL 或 DDL");
     }
 

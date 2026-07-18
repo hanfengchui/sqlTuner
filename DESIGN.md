@@ -23,15 +23,15 @@
 
 ## Information architecture
 - Primary navigation: a dark desktop conversation rail with new tuning, real session search, recent conversations and account controls; administrator destinations live once in the top command bar and are not duplicated in the rail.
-- Core routes/screens: `/login`, `/chat`, `/tasks/:taskId`, `/admin/model`, `/admin/skills`, `/admin/rules`.
-- Content hierarchy: left conversation list, one centered conversation column, compact bottom composer, inline assistant answer. There is no right diagnostic dossier in the workspace; an unobtrusive link opens the separate task route when a full audit trail is genuinely needed.
+- Core routes/screens: `/login`, `/chat`, `/admin/model`, `/admin/skills`, `/admin/rules`.
+- Content hierarchy: left conversation list, one centered conversation column, compact bottom composer, inline assistant answer. There is no right diagnostic dossier, detail drawer or separate task-detail route in the product reading path; legacy `/tasks/:taskId` URLs redirect to `/chat`.
 
 ## Design principles
 - Principle 1: One linear reading path. A user question, a trustworthy in-progress state, and a concise answer must fit the center column without switching context.
 - Principle 2: Validation before reveal. Live status may stream, but raw model output is never shown before strict validation succeeds.
 - Principle 3: Input should accept the form people already have. Full patrol-report text is parsed server-side; an attachment is a compact screenshot chip, not a large evidence form.
 - Principle 4: Disclosure earns its place. Evidence IDs, raw artifacts, exhaustive preconditions and duplicate risk text are hidden from the routine chat response.
-- Tradeoffs: structured detail remains stored and available through task APIs for auditability, while the product default is a concise conversational result rather than a tabbed report.
+- Tradeoffs: structured detail remains stored in task APIs for auditability, but no separate audit screen competes with the conversational reading path.
 
 ## Visual language
 - Color: charcoal conversation rail and workspace by default, warm graphite message surfaces, cobalt for the one primary send action, amber/red only for uncertainty and failure, green only for completed health/pass states. The light theme remains available.
@@ -43,7 +43,7 @@
 
 ## Components
 - Existing components to reuse: authentication API shape, conversation/task APIs, theme hook, admin pages, task SSE/polling behavior, server-side pasted-report extraction and image validation.
-- New/changed components: Codex-like desktop conversation rail, compact SQL/report message composer, screenshot attachment tray, chat task-progress message, validated tuning-advice message, a separate full-audit task detail, searchable session list and compact admin consoles.
+- New/changed components: Codex-like desktop conversation rail, compact SQL/report message composer, screenshot attachment tray, chat task-progress message, validated tuning-advice message, searchable session list and compact admin consoles.
 - Removed from the workspace: context-completeness meter, schema/index/EXPLAIN/runtime/semantic text fields, allowed-action checkboxes, the "补充证据" disclosure, right report inspector, result tabs and routine artifact/evidence cards.
 - Variants and states: queued/running/terminal task states, standard/deep analysis, `ADVICE`/`NEEDS_INPUT`, empty/error/loading/disabled/offline-ish retry states.
 - Token/component ownership: global CSS owns tokens and shared layout primitives; React components own state and semantics.
@@ -79,7 +79,7 @@
 - Design-token constraints: theme variables in CSS; ordinary radius 6-8px; no decorative gradients/orbs.
 - Performance constraints: frontend is static; model/API work stays backend; long pasted SQL/report text is bounded by the API contract and displayed in a scrollable monospace message; input images are bounded, persisted outside task JSON, and processed by a bounded vision call before the text analysis.
 - Compatibility constraints: preserve existing API response wrapper and legacy result fields while reading new structured fields when present; unsafe requests load `/api/auth/csrf` and send the returned CSRF header token; model gateways use OpenAI-compatible `/chat/completions` and optional `/models`, while manual model IDs remain available for gateways that do not expose catalogs; readiness telemetry comes from `/api/health/ready` (`status`, `mysql`, `queued`, `running`) and model runtime telemetry from `/api/admin/health` (`provider`, `model`, `mockState`, `apiKeyConfigured`).
-- Test/screenshot expectations: Vitest + Testing Library for composer attachment handling, validated advice rendering and task-stage behavior; Playwright desktop projects at 1366 and 1920 for login, chat composer, conversation result, history and admin flows. No tablet/mobile projects or responsive acceptance criteria.
+- Test/screenshot expectations: Vitest + Testing Library for composer attachment handling, concise validated advice rendering and task-stage behavior; Playwright desktop projects at 1366 and 1920 for login, chat composer, conversation result, history and admin flows. No tablet/mobile projects or responsive acceptance criteria.
 
 ## Open questions
 - None for this implementation slice.

@@ -139,14 +139,8 @@ test("workspace renders concise validated advice inline in the conversation", as
   await expect(page.getByText("SELECT * 扩大回表成本")).toHaveCount(0);
   await expect(page.getByRole("tab")).toHaveCount(0);
   await expect(page.getByText("打开右侧报告")).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "查看完整依据" })).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("inline-advice.png"), fullPage: true });
-  await page.getByRole("link", { name: "查看完整依据" }).click();
-  await expect(page).toHaveURL(/\/tasks\/7$/);
-  await expect(page.getByText("审计详情")).toBeVisible();
-  await expect(page.getByText("工程师结论")).toBeVisible();
-  await page.getByText("证据目录 (1)").click();
-  await expect(page.getByText("E_EXPLAIN · USER_EXPLAIN")).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath("task-evidence.png"), fullPage: true });
 });
 
 test("model gateway discovers OpenAI-compatible models and keeps custom input", async ({ page }) => {

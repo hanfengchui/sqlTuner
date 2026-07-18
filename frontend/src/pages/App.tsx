@@ -9,7 +9,6 @@ import { LoginPage } from "./LoginPage";
 import { ModelConfigPage } from "./ModelConfigPage";
 import { RuleAdminPage } from "./RuleAdminPage";
 import { SkillAdminPage } from "./SkillAdminPage";
-import { TaskDetailPage } from "./TaskDetailPage";
 
 export function App() {
   const [user, setUser] = useState<UserView | null>(null);
@@ -138,7 +137,6 @@ export function App() {
             />
           }
         />
-        <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
         <Route path="/admin/skills" element={<SkillAdminPage />} />
         <Route path="/admin/model" element={<ModelConfigPage />} />
         <Route path="/admin/rules" element={<RuleAdminPage />} />

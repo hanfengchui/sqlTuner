@@ -72,12 +72,12 @@ public class StrictResultValidator {
             outcome.reject("缺少 analysisNarrative.conclusion");
             return;
         }
-        if (narrative.getConclusion().length() > 1200) {
+        if (narrative.getConclusion().length() > 600) {
             outcome.reject("analysisNarrative.conclusion 超过长度限制");
         }
         validateNarrativeText("analysisNarrative.conclusion", narrative.getConclusion(), outcome);
-        if (narrative.getSections().isEmpty() || narrative.getSections().size() > 5) {
-            outcome.reject("analysisNarrative.sections 必须包含 1 至 5 个段落");
+        if (narrative.getSections().isEmpty() || narrative.getSections().size() > 3) {
+            outcome.reject("analysisNarrative.sections 必须包含 1 至 3 个段落");
         }
         for (NarrativeSection section : narrative.getSections()) {
             if (!hasText(section.getKind()) || !hasText(section.getTitle()) || !hasText(section.getBody())) {
@@ -87,10 +87,10 @@ public class StrictResultValidator {
             if (!isNarrativeKind(section.getKind())) {
                 outcome.reject("analysisNarrative.sections 包含不支持的 kind: " + section.getKind());
             }
-            if (section.getBody().length() > 1800) {
+            if (section.getBody().length() > 700) {
                 outcome.reject("analysisNarrative.sections.body 超过长度限制");
             }
-            if (section.getTitle().length() > 180) {
+            if (section.getTitle().length() > 60) {
                 outcome.reject("analysisNarrative.sections.title 超过长度限制");
             }
             validateNarrativeText("analysisNarrative.sections", section.getTitle() + "\n" + section.getBody(), outcome);
