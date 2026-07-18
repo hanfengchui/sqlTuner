@@ -42,6 +42,7 @@ describe("useTaskUpdates", () => {
     expect(result.current.task?.status).toBe("RECEIVED");
     act(() => handlers?.onTask(task("QUEUED", 1)));
     expect(result.current.task?.status).toBe("RECEIVED");
+    act(() => handlers?.onTask(task("LLM_ANALYZING", 3)));
     act(() => handlers?.onArtifact?.({
       nodeName: "rules",
       summary: "rule scan",
@@ -64,9 +65,18 @@ describe("useTaskUpdates", () => {
     }));
     expect(result.current.modelStream?.sequence).toBe(1);
 
-    act(() => handlers?.onTask(task("QUEUED", 3, 1)));
+    act(() => handlers?.onTask(task("QUEUED", 4, 1)));
     expect(result.current.modelStream).toBeUndefined();
-    act(() => handlers?.onTask(task("RECEIVED", 4, 2)));
+    act(() => handlers?.onModelStream?.({
+      phase: "ANSWER",
+      draftText: "租约过期后的旧 worker 草稿",
+      receivedChars: 90,
+      sequence: 99,
+      attempt: 1
+    }));
+    expect(result.current.modelStream).toBeUndefined();
+    act(() => handlers?.onTask(task("RECEIVED", 5, 2)));
+    act(() => handlers?.onTask(task("LLM_ANALYZING", 6, 2)));
     act(() => handlers?.onModelStream?.({
       phase: "ANSWER",
       draftText: "新一轮草稿",
@@ -95,7 +105,7 @@ describe("useTaskUpdates", () => {
     await waitFor(() => expect(taskRequest.mock.calls.length).toBeGreaterThan(1));
 
     act(() => handlers?.onOpen?.());
-    act(() => handlers?.onTask(task("DONE", 5)));
+    act(() => handlers?.onTask(task("DONE", 7, 2)));
     expect(result.current.task?.status).toBe("DONE");
     expect(result.current.modelStream).toBeUndefined();
     expect(close).toHaveBeenCalled();

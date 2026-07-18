@@ -15,13 +15,8 @@ public class ModelStreamProjector {
     private static final Pattern SECTION_TITLE = Pattern.compile("\"title\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"");
     private static final Pattern SECTION_BODY = Pattern.compile("\"body\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"");
     private static final Pattern EXECUTABLE_SQL = Pattern.compile(
-            "(?is)(?:\\bcreate\\s+(?:or\\s+replace\\s+)?(?:(?:unique|bitmap|clustered|nonclustered|global|local|temporary)\\s+)*"
-                    + "(?:index|table|view|materialized\\s+view|sequence|trigger|function|procedure|package|type)\\b"
-                    + "|\\b(?:alter|drop|truncate|rename)\\s+(?:table|index|view|sequence|trigger|function|procedure|package|type)\\b"
-                    + "|\\b(?:insert\\s+into|delete\\s+from|merge\\s+into)\\b"
-                    + "|\\bupdate\\s+[\\w.$\"`]+\\s+set\\b"
-                    + "|\\bselect\\b.{0,4096}?\\bfrom\\b"
-                    + "|```\\s*sql\\b|\\bsql\\s*:)");
+            "(?i)(?:```\\s*sql\\b|\\bsql\\s*:|\\b(?:select|with|insert|replace|update|delete|merge|create|alter|drop|"
+                    + "truncate|rename|grant|revoke|call|exec|execute|begin|declare|explain|analyze|lock|set|commit|rollback)\\b)");
     private static final int MAX_DRAFT_LENGTH = 12 * 1024;
     private final ObjectMapper objectMapper;
 

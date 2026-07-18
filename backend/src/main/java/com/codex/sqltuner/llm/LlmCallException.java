@@ -6,7 +6,18 @@ package com.codex.sqltuner.llm;
  * 调用失败不应静默回退成 mock 当成功，而应让上层把任务标记为失败并暴露原因。
  */
 public class LlmCallException extends RuntimeException {
+    private final boolean retryable;
+
     public LlmCallException(String message, Throwable cause) {
+        this(message, cause, false);
+    }
+
+    public LlmCallException(String message, Throwable cause, boolean retryable) {
         super(message, cause);
+        this.retryable = retryable;
+    }
+
+    public boolean isRetryable() {
+        return retryable;
     }
 }

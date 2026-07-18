@@ -26,6 +26,10 @@ class ModelStreamProjectorTest {
         assertThat(projector.project(narrative("CREATE UNIQUE INDEX idx_u ON t(c)"))).isEmpty();
         assertThat(projector.project(narrative("CREATE BITMAP INDEX idx_b ON t(c)"))).isEmpty();
         assertThat(projector.project(narrative("CREATE OR REPLACE VIEW v AS SELECT c FROM t"))).isEmpty();
+        assertThat(projector.project(narrative("CREATE FULLTEXT INDEX idx_f ON t(c)"))).isEmpty();
+        assertThat(projector.project(narrative("CREATE SPATIAL INDEX idx_s ON t(c)"))).isEmpty();
+        assertThat(projector.project(narrative("CREATE /*comment*/ UNIQUE INDEX idx_c ON t(c)"))).isEmpty();
+        assertThat(projector.project(narrative("REPLACE INTO t(id) VALUES (1)"))).isEmpty();
     }
 
     @Test
