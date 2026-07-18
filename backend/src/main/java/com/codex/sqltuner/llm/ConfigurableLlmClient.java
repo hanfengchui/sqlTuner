@@ -13,13 +13,24 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.client.RequestCallback;
+import org.springframework.web.client.ResponseExtractor;
 
+import java.io.BufferedReader;
+import java.io.EOFException;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.concurrent.Semaphore;
@@ -56,6 +67,11 @@ public class ConfigurableLlmClient implements LlmClient {
 
     @Override
     public LlmResponse analyze(LlmRequest request) {
+        return analyze(request, null);
+    }
+
+    @Override
+    public LlmResponse analyze(LlmRequest request, LlmStreamListener listener) {
         long start = System.currentTimeMillis();
         String provider = properties.getProvider() == null ? "mock" : properties.getProvider();
         String model = resolveModel(request);
@@ -88,7 +104,8 @@ public class ConfigurableLlmClient implements LlmClient {
             }
             refreshTimeouts();
 
-            ObjectNode body = buildChatRequestBody(request);
+            boolean streamEnabled = listener != null && !request.hasImages();
+            ObjectNode body = buildChatRequestBody(request, streamEnabled);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -98,17 +115,28 @@ public class ConfigurableLlmClient implements LlmClient {
             if (url != null && !url.endsWith("/chat/completions")) {
                 url = url.replaceAll("/+$", "") + "/chat/completions";
             }
+            if (streamEnabled) {
+                String content = streamAnalyze(url, headers, body, listener);
+                log.info("analyze response 响应: status: streamed, elapsedMs: {}, contentLength: {}",
+                        System.currentTimeMillis() - start, content == null ? 0 : content.length());
+                return new LlmResponse(provider, model, content, System.currentTimeMillis() - start, false);
+            }
             ResponseEntity<String> response = restTemplate.postForEntity(
                     url,
                     new HttpEntity<byte[]>(body.toString().getBytes(StandardCharsets.UTF_8), headers),
                     String.class);
             String content = extractContent(response.getBody(), response.getStatusCodeValue());
+            if (listener != null && content != null && !content.isEmpty()) {
+                listener.onContent(content, content.length());
+            }
             log.info("analyze response 响应: status: {}, elapsedMs: {}, contentLength: {}",
                     response.getStatusCodeValue(), System.currentTimeMillis() - start, content == null ? 0 : content.length());
             return new LlmResponse(provider, model, content, System.currentTimeMillis() - start, false);
         } catch (LlmCallException e) {
             // extractContent 抛出的业务错误，原样上抛，不再降级 mock。
             throw e;
+        } catch (RestClientResponseException e) {
+            throw new LlmCallException("模型调用失败: " + summarizeHttpError(e), e);
         } catch (Exception e) {
             // 真实调用失败（网络/超时/限流/鉴权）：抛出，由上层把任务标记为 FAILED，
             // 不再静默回退成 mock 当成功（避免逼真假建议被当真执行）。
@@ -147,26 +175,26 @@ public class ConfigurableLlmClient implements LlmClient {
         try {
             root = objectMapper.readTree(responseBody);
         } catch (Exception e) {
-            throw new LlmCallException("模型响应不是合法 JSON: " + abbreviate(responseBody, 200), e);
+            throw new LlmCallException("模型响应不是合法 JSON, bodyLength=" + responseBody.length(), e);
         }
         JsonNode choices = root.path("choices");
         if (choices.isArray() && choices.size() > 0) {
             String content = choices.get(0).path("message").path("content").asText();
             if (content == null || content.isEmpty()) {
-                throw new LlmCallException("模型响应缺少 content, status: " + statusCode + ", body: " + abbreviate(responseBody, 200), null);
+                throw new LlmCallException("模型响应缺少 content, status: " + statusCode, null);
             }
             return content;
         }
-        // 没有 choices：通常是错误信封。提取 code/message 暴露给上层。
-        String code = root.path("code").asText("");
-        String message = root.path("message").asText("");
-        String detail = (code.isEmpty() && message.isEmpty())
-                ? abbreviate(responseBody, 200)
-                : "code=" + code + ", message=" + message;
-        throw new LlmCallException("模型返回错误信封, status: " + statusCode + ", " + detail, null);
+        // 没有 choices：通常是错误信封。只暴露安全 code，不回显可能含提示词/SQL 的 message/body。
+        String code = safeErrorCode(root.path("code").asText("provider_error"));
+        throw new LlmCallException("模型返回错误信封, status: " + statusCode + ", code=" + code, null);
     }
 
     ObjectNode buildChatRequestBody(LlmRequest request) {
+        return buildChatRequestBody(request, false);
+    }
+
+    ObjectNode buildChatRequestBody(LlmRequest request, boolean streamEnabled) {
         ObjectNode body = objectMapper.createObjectNode();
         body.put("model", resolveModel(request));
         ArrayNode messages = body.putArray("messages");
@@ -197,12 +225,154 @@ public class ConfigurableLlmClient implements LlmClient {
             // DashScope/OpenAI 兼容 JSON mode：提示词已明确包含 JSON，仍由后端做严格结构与证据校验。
             body.putObject("response_format").put("type", "json_object");
         }
+        if (streamEnabled) {
+            body.put("stream", true);
+        }
         String reasoningEffort = reasoningEffort();
         if (!request.hasImages() && reasoningEffort != null) {
             body.put("reasoning_effort", reasoningEffort);
         }
         body.put("temperature", request.isDeepAnalysis() ? 0.2 : 0.1);
         return body;
+    }
+
+    String streamAnalyze(String url, HttpHeaders headers, ObjectNode body, LlmStreamListener listener) {
+        StringBuilder content = new StringBuilder();
+        RequestCallback callback = request -> {
+            request.getHeaders().putAll(headers);
+            request.getBody().write(body.toString().getBytes(StandardCharsets.UTF_8));
+        };
+        ResponseExtractor<String> extractor = new ResponseExtractor<String>() {
+            @Override
+            public String extractData(ClientHttpResponse response) throws IOException {
+                Charset charset = response.getHeaders().getContentType() != null && response.getHeaders().getContentType().getCharset() != null
+                        ? response.getHeaders().getContentType().getCharset()
+                        : StandardCharsets.UTF_8;
+                StringBuilder plainBody = new StringBuilder();
+                boolean sawServerSentEvent = false;
+                boolean completed = false;
+                int receivedChars = 0;
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.getBody(), charset))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (!line.startsWith("data:")) {
+                            plainBody.append(line);
+                            continue;
+                        }
+                        sawServerSentEvent = true;
+                        String payload = line.substring("data:".length()).trim();
+                        if (payload.isEmpty()) {
+                            continue;
+                        }
+                        if ("[DONE]".equals(payload)) {
+                            completed = true;
+                            break;
+                        }
+                        try {
+                            JsonNode chunk = objectMapper.readTree(payload);
+                            String errorCode = extractStreamErrorCode(chunk);
+                            if (errorCode != null) {
+                                throw new LlmCallException("模型流式返回错误, code=" + errorCode, null);
+                            }
+                            String delta = extractStreamContent(chunk);
+                            String reasoning = extractStreamReasoning(chunk);
+                            String finishReason = extractStreamFinishReason(chunk);
+                            receivedChars += delta.length() + reasoning.length();
+                            if (delta != null && !delta.isEmpty()) {
+                                content.append(delta);
+                            }
+                            if (listener != null && (receivedChars > 0 || content.length() > 0)) {
+                                listener.onContent(content.toString(), receivedChars);
+                            }
+                            if (finishReason != null) {
+                                if (!"stop".equalsIgnoreCase(finishReason)) {
+                                    throw new LlmCallException("模型流式输出未完整完成, finishReason=" + safeErrorCode(finishReason), null);
+                                }
+                                completed = true;
+                                break;
+                            }
+                        } catch (LlmCallException e) {
+                            throw e;
+                        } catch (Exception e) {
+                            throw new IOException("无法解析流式响应片段, payloadLength=" + payload.length(), e);
+                        }
+                    }
+                }
+                if (!sawServerSentEvent) {
+                    String fallback = extractContent(plainBody.toString(), response.getRawStatusCode());
+                    if (listener != null && fallback != null && !fallback.isEmpty()) {
+                        listener.onContent(fallback, fallback.length());
+                    }
+                    return fallback;
+                }
+                if (!completed) {
+                    throw new LlmCallException(
+                            "模型流式连接提前结束: missing completion marker",
+                            new EOFException("stream ended before completion"));
+                }
+                return content.toString();
+            }
+        };
+        try {
+            return restTemplate.execute(url, HttpMethod.POST, callback, extractor);
+        } catch (RestClientResponseException e) {
+            throw new LlmCallException("模型流式调用失败: " + summarizeHttpError(e), e);
+        } catch (RestClientException e) {
+            throw new LlmCallException("模型流式调用失败: " + e.getMessage(), e);
+        }
+    }
+
+    private String extractStreamContent(JsonNode chunk) {
+        JsonNode delta = firstStreamDelta(chunk);
+        return delta == null ? "" : delta.path("content").asText("");
+    }
+
+    private String extractStreamReasoning(JsonNode chunk) {
+        JsonNode delta = firstStreamDelta(chunk);
+        return delta == null ? "" : delta.path("reasoning_content").asText("");
+    }
+
+    private String extractStreamFinishReason(JsonNode chunk) {
+        if (chunk == null || !chunk.path("choices").isArray() || chunk.path("choices").isEmpty()) {
+            return null;
+        }
+        JsonNode reason = chunk.path("choices").get(0).get("finish_reason");
+        return reason == null || reason.isNull() || reason.asText("").trim().isEmpty()
+                ? null
+                : reason.asText().trim();
+    }
+
+    private String extractStreamErrorCode(JsonNode chunk) {
+        if (chunk == null) {
+            return null;
+        }
+        JsonNode error = chunk.get("error");
+        if (error != null && !error.isNull()) {
+            if (error.isObject()) {
+                String code = error.path("code").asText(error.path("type").asText("provider_error"));
+                return safeErrorCode(code);
+            }
+            return "provider_error";
+        }
+        if (!chunk.has("choices") && (chunk.has("code") || chunk.has("message"))) {
+            return safeErrorCode(chunk.path("code").asText("provider_error"));
+        }
+        return null;
+    }
+
+    private JsonNode firstStreamDelta(JsonNode chunk) {
+        if (chunk == null || !chunk.has("choices")) {
+            return null;
+        }
+        JsonNode choices = chunk.path("choices");
+        if (!choices.isArray() || choices.isEmpty()) {
+            return null;
+        }
+        JsonNode delta = choices.get(0).path("delta");
+        if (delta == null || delta.isMissingNode()) {
+            return null;
+        }
+        return delta;
     }
 
     private String reasoningEffort() {
@@ -221,6 +391,29 @@ public class ConfigurableLlmClient implements LlmClient {
             return "";
         }
         return value.length() <= max ? value : value.substring(0, max) + "...";
+    }
+
+    private String safeErrorCode(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return "provider_error";
+        }
+        String safe = value.trim().replaceAll("[^A-Za-z0-9_.-]", "_");
+        return abbreviate(safe, 80);
+    }
+
+    private String summarizeHttpError(RestClientResponseException error) {
+        String body = error.getResponseBodyAsString();
+        String code = "";
+        if (body != null && !body.trim().isEmpty()) {
+            try {
+                JsonNode root = objectMapper.readTree(body);
+                JsonNode envelope = root.has("error") && root.path("error").isObject() ? root.path("error") : root;
+                code = safeErrorCode(envelope.path("code").asText(envelope.path("type").asText("")));
+            } catch (Exception ignored) {
+                code = "";
+            }
+        }
+        return error.getRawStatusCode() + " " + error.getStatusText() + (code.isEmpty() ? "" : ", code=" + code);
     }
 
     private HttpComponentsClientHttpRequestFactory buildRequestFactory() {

@@ -49,6 +49,8 @@ import java.util.Locale;
 @Service
 public class TuningHarnessService {
     private static final Logger log = LoggerFactory.getLogger(TuningHarnessService.class);
+    private static final long STREAM_PROGRESS_MIN_INTERVAL_NANOS = 150L * 1000L * 1000L;
+    private static final int STREAM_PROGRESS_CHAR_STEP = 512;
     private static final String VISION_SYSTEM_PROMPT =
             "你是截图 OCR/视觉事实抽取器，只抽取图片中可见文字和执行计划事实。";
     private static final String VISION_EXTRACTION_PROMPT =
@@ -312,7 +314,7 @@ public class TuningHarnessService {
         String userPrompt = promptCompiler.analysisPrompt(task, dialect, profile, context, findings, recentConversationContext(task));
         transition(task, TaskStatus.LLM_ANALYZING, "正在调用模型分析");
         addArtifact(task, "promptBuild", "构建模型输入", promptSummary(userPrompt, skill));
-        LlmResponse response = llmClient.analyze(new LlmRequest(systemPrompt, userPrompt, false));
+        LlmResponse response = analyzeWithStream(task, new LlmRequest(systemPrompt, userPrompt, false));
         addArtifact(task, "llmAnalyze", "模型分析完成", response);
 
         transition(task, TaskStatus.VERIFYING, "正在校验模型结构化输出");
@@ -320,7 +322,7 @@ public class TuningHarnessService {
 
         if (task.isDeepAnalysis()) {
             transition(task, TaskStatus.REVIEWING, "正在复核模型建议");
-            LlmResponse reviewResponse = llmClient.analyze(new LlmRequest(systemPrompt, promptCompiler.reviewPrompt(result), true));
+            LlmResponse reviewResponse = analyzeWithStream(task, new LlmRequest(systemPrompt, promptCompiler.reviewPrompt(result), true));
             addArtifact(task, "llmReview", "深度分析复核完成", reviewResponse);
             TuningResult reviewed = parseValidateReviewAndRepairOnce(
                     task, result, reviewResponse, context, profile, dialect, systemPrompt);
@@ -355,6 +357,38 @@ public class TuningHarnessService {
         taskRepository.update(task);
         eventBroker.publish(task);
         log.info("transitionTask result 结果: taskId: {}, status: {}, message: {}", task.getId(), status, message);
+    }
+
+    private LlmResponse analyzeWithStream(final SqlTuningTask task, LlmRequest request) {
+        eventBroker.resetModelStream(task);
+        final ModelStreamProjector projector = new ModelStreamProjector(objectMapper);
+        final String[] lastDraft = new String[]{""};
+        final int[] lastPublishedChars = new int[]{-1};
+        final long[] lastPublishedAt = new long[]{0L};
+        return llmClient.analyze(request, new com.codex.sqltuner.llm.LlmStreamListener() {
+            @Override
+            public void onContent(String accumulatedContent, int receivedChars) {
+                String draft = projector.project(accumulatedContent);
+                long now = System.nanoTime();
+                if (draft.equals(lastDraft[0])) {
+                    if (hasText(draft)) {
+                        return;
+                    }
+                    boolean intervalElapsed = lastPublishedAt[0] == 0L
+                            || now - lastPublishedAt[0] >= STREAM_PROGRESS_MIN_INTERVAL_NANOS;
+                    boolean enoughProgress = lastPublishedChars[0] < 0
+                            || receivedChars - lastPublishedChars[0] >= STREAM_PROGRESS_CHAR_STEP;
+                    if (!intervalElapsed && !enoughProgress) {
+                        return;
+                    }
+                }
+                lastDraft[0] = draft;
+                lastPublishedChars[0] = receivedChars;
+                lastPublishedAt[0] = now;
+                String phase = hasText(draft) ? (request.isDeepAnalysis() ? "VERIFYING" : "ANSWER") : "THINKING";
+                eventBroker.publishModelStream(task, new TaskStreamChunk(phase, draft, receivedChars, 0L));
+            }
+        });
     }
 
     private void addArtifact(SqlTuningTask task, String nodeName, String summary, Object payload) {
@@ -583,7 +617,7 @@ public class TuningHarnessService {
         }
 
         addArtifact(task, "reviewValidateFailed", "深度复核输出未通过严格校验，执行一次修复", errors);
-        LlmResponse repaired = llmClient.analyze(new LlmRequest(
+        LlmResponse repaired = analyzeWithStream(task, new LlmRequest(
                 systemPrompt,
                 promptCompiler.reviewRepairPrompt(response.getContent(), errors),
                 true));
@@ -822,7 +856,7 @@ public class TuningHarnessService {
         }
 
         addArtifact(task, "resultValidateFailed", "模型输出未通过严格校验，执行一次修复", validationErrors);
-        LlmResponse repaired = llmClient.analyze(new LlmRequest(
+        LlmResponse repaired = analyzeWithStream(task, new LlmRequest(
                 systemPrompt,
                 promptCompiler.repairPrompt(response.getContent(), validationErrors),
                 false));

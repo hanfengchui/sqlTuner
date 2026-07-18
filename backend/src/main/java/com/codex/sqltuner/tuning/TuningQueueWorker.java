@@ -51,7 +51,7 @@ public class TuningQueueWorker {
 
     @Scheduled(fixedDelay = 1000L)
     public void dispatch() {
-        taskRepository.requeueExpiredLeases();
+        requeueExpiredLeasesAndPublish();
         while (permits.tryAcquire()) {
             final SqlTuningTask task = taskRepository.claimNext(leaseOwner);
             if (task == null) {
@@ -86,7 +86,7 @@ public class TuningQueueWorker {
         if (renewed > 0) {
             log.info("heartbeat result 结果: leaseOwner: {}, renewed: {}", leaseOwner, renewed);
         }
-        taskRepository.requeueExpiredLeases();
+        requeueExpiredLeasesAndPublish();
     }
 
     private void handleFailure(SqlTuningTask task, Exception e) {
@@ -125,6 +125,7 @@ public class TuningQueueWorker {
                 return false;
             }
             if (current instanceof org.springframework.web.client.ResourceAccessException
+                    || current instanceof java.io.EOFException
                     || current instanceof java.net.SocketTimeoutException
                     || current instanceof java.net.ConnectException
                     || current instanceof java.net.UnknownHostException
@@ -141,13 +142,20 @@ public class TuningQueueWorker {
                 if (message.contains("429") || message.contains("502") || message.contains("503")
                         || message.contains("504") || message.contains("timeout") || message.contains("timed out")
                         || message.contains("connection reset") || message.contains("connection refused")
-                        || message.contains("i/o error")) {
+                        || message.contains("i/o error") || message.contains("提前结束")
+                        || message.contains("rate_limit") || message.contains("throttl")) {
                     return true;
                 }
             }
             current = current.getCause();
         }
         return false;
+    }
+
+    private void requeueExpiredLeasesAndPublish() {
+        for (SqlTuningTask requeued : taskRepository.requeueExpiredLeases()) {
+            eventBroker.publish(requeued);
+        }
     }
 
     @PreDestroy
