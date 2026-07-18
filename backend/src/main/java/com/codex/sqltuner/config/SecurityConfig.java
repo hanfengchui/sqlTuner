@@ -2,9 +2,10 @@ package com.codex.sqltuner.config;
 
 import com.codex.sqltuner.common.ApiResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -29,6 +30,16 @@ public class SecurityConfig {
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder(12);
+    }
+
+    @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+    public FilterRegistrationBean<SessionAuthenticationFilter> sessionAuthenticationFilterRegistration(
+            SessionAuthenticationFilter filter) {
+        FilterRegistrationBean<SessionAuthenticationFilter> registration =
+                new FilterRegistrationBean<SessionAuthenticationFilter>(filter);
+        registration.setEnabled(false);
+        return registration;
     }
 
     @Bean
