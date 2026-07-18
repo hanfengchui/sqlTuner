@@ -236,6 +236,238 @@ class StrictResultValidatorSemanticTest {
     }
 
     @Test
+    void rejectsUnqualifiedScanRowCountWhenOnlyEstimatedRowsWereProvided() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.getAnalysisNarrative().getSections().get(0)
+                .setBody("当前 SQL 执行全表扫描，扫描行数达 100000 行，资源消耗较大。");
+        ContextPackage context = context();
+        context.setExplainText("TABLE FULL SCAN orders; estimated rows=100000");
+
+        ValidationOutcome outcome = validator.validate(result, context, profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isFalse();
+        assertThat(outcome.summary()).contains("缺少实际行数证据");
+    }
+
+    @Test
+    void rejectsUnqualifiedRowCountsWithoutRepeatedUnitSuffix() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        String[] claims = {
+                "当前扫描行数达 100000。",
+                "当前返回行数为 1。",
+                "The query returned rows: 100000."
+        };
+        for (String claim : claims) {
+            SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+            TuningResult result = validResult(sql);
+            result.getAnalysisNarrative().getSections().get(0).setBody(claim);
+
+            ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
+
+            assertThat(outcome.isValid()).as(claim).isFalse();
+            assertThat(outcome.summary()).as(claim).contains("缺少实际行数证据");
+        }
+    }
+
+    @Test
+    void doesNotBorrowEstimateQualifierFromAnEarlierClause() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        String[] claims = {
+                "执行计划估计行数为 10；但当前扫描行数达 100000。",
+                "The plan estimated rows at 10. The query scanned 100000 rows."
+        };
+        for (String claim : claims) {
+            SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+            TuningResult result = validResult(sql);
+            result.getAnalysisNarrative().getSections().get(0).setBody(claim);
+
+            ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
+
+            assertThat(outcome.isValid()).as(claim).isFalse();
+            assertThat(outcome.summary()).as(claim).contains("缺少实际行数证据");
+        }
+    }
+
+    @Test
+    void bindsEachQualifierToItsOwnRowCountMention() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 100";
+        String[] claims = {
+                "LIMIT 100 最多返回 100 行，但扫描行数达 100000 行。",
+                "Estimated returned rows: 100, but the query scanned 100000 rows."
+        };
+        for (String claim : claims) {
+            SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+            TuningResult result = validResult(sql);
+            result.getAnalysisNarrative().getSections().get(0).setBody(claim);
+
+            ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
+
+            assertThat(outcome.isValid()).as(claim).isFalse();
+            assertThat(outcome.summary()).as(claim).contains("缺少实际行数证据");
+        }
+    }
+
+    @Test
+    void bindsEstimateQualifierToGenericEstimatedRowReference() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 100";
+        String[] claims = {
+                "计划估计行数为 10 而扫描行数达 100000 行。",
+                "Estimated rows: 10 versus scanned rows: 100000."
+        };
+        for (String claim : claims) {
+            SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+            TuningResult result = validResult(sql);
+            result.getAnalysisNarrative().getSections().get(0).setBody(claim);
+
+            ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
+
+            assertThat(outcome.isValid()).as(claim).isFalse();
+            assertThat(outcome.summary()).as(claim).contains("缺少实际行数证据");
+        }
+    }
+
+    @Test
+    void ignoresNegatedEstimateAndUpperBoundQualifiers() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 100";
+        String[] claims = {
+                "这不是估算值而是扫描行数达 100000 行。",
+                "扫描行数达 100000 行并不是估算值。",
+                "返回行数达 100000 行且不受上限限制。",
+                "Scanned rows: 100000, not estimated."
+        };
+        for (String claim : claims) {
+            SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+            TuningResult result = validResult(sql);
+            result.getAnalysisNarrative().getSections().get(0).setBody(claim);
+
+            ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
+
+            assertThat(outcome.isValid()).as(claim).isFalse();
+            assertThat(outcome.summary()).as(claim).contains("缺少实际行数证据");
+        }
+    }
+
+    @Test
+    void acceptsExplicitlyEstimatedScanRowCount() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.getAnalysisNarrative().getSections().get(0)
+                .setBody("执行计划估计扫描行数为 100000 行，该数值不是实际返回行数。");
+        ContextPackage context = context();
+        context.setExplainText("TABLE FULL SCAN orders; estimated rows=100000");
+
+        ValidationOutcome outcome = validator.validate(result, context, profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isTrue();
+    }
+
+    @Test
+    void acceptsEstimateSynonymsAndEnglishEstimatedRows() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        String[] claims = {
+                "执行计划估算扫描行数为 100000 行。",
+                "The optimizer estimated scanned rows: 100000."
+        };
+        for (String claim : claims) {
+            SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+            TuningResult result = validResult(sql);
+            result.getAnalysisNarrative().getSections().get(0).setBody(claim);
+
+            ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
+
+            assertThat(outcome.isValid()).as(claim).isTrue();
+        }
+    }
+
+    @Test
+    void acceptsEstimateQualifierAfterTheRowCountMention() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        String[] claims = {
+                "扫描行数为 100000 行（估算值）。",
+                "Scanned rows: 100k (estimated)."
+        };
+        for (String claim : claims) {
+            SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+            TuningResult result = validResult(sql);
+            result.getAnalysisNarrative().getSections().get(0).setBody(claim);
+
+            ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
+
+            assertThat(outcome.isValid()).as(claim).isTrue();
+        }
+    }
+
+    @Test
+    void acceptsLeadingEstimatePhraseAcrossComma() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        String[] claims = {
+                "根据执行计划估算，扫描行数为 100000 行。",
+                "Estimated by the optimizer, scanned rows: 100000."
+        };
+        for (String claim : claims) {
+            SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+            TuningResult result = validResult(sql);
+            result.getAnalysisNarrative().getSections().get(0).setBody(claim);
+
+            ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
+
+            assertThat(outcome.isValid()).as(claim).isTrue();
+        }
+    }
+
+    @Test
+    void acceptsSqlRowLimitAsAnUpperBoundRatherThanActualRuntimeCount() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 100";
+        String[] claims = {
+                "LIMIT 100 表示最多返回 100 行。",
+                "ROWNUM 条件限制返回行数不超过 100。",
+                "The LIMIT clause caps returned rows at most 100."
+        };
+        for (String claim : claims) {
+            SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+            TuningResult result = validResult(sql);
+            result.getAnalysisNarrative().getSections().get(0).setBody(claim);
+
+            ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
+
+            assertThat(outcome.isValid()).as(claim).isTrue();
+        }
+    }
+
+    @Test
+    void acceptsUnqualifiedScanRowCountWhenMatchingActualEvidenceExists() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.getAnalysisNarrative().getSections().get(0)
+                .setBody("监控显示本次扫描行数为 100000 行。");
+        ContextPackage context = context();
+        context.setRuntimeMetricsText("实际扫描行数: 100000");
+
+        ValidationOutcome outcome = validator.validate(result, context, profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isTrue();
+    }
+
+    @Test
+    void normalizesCompactRowCountsAgainstActualEvidence() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.getAnalysisNarrative().getSections().get(0)
+                .setBody("监控显示本次扫描行数为 10 万。");
+        ContextPackage context = context();
+        context.setRuntimeMetricsText("实际扫描行数: 100000");
+
+        ValidationOutcome outcome = validator.validate(result, context, profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isTrue();
+    }
+
+    @Test
     void rejectsCommonActualRowClaimVariantsWithoutRuntimeEvidence() {
         String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
         String[] claims = {

@@ -11,6 +11,7 @@ import com.codex.sqltuner.tuning.result.RewriteCandidate;
 import com.codex.sqltuner.tuning.result.ValidationStep;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -25,6 +26,7 @@ import java.util.regex.Pattern;
 
 @Component
 public class StrictResultValidator {
+    private static final String ROW_COUNT_VALUE = "(\\d[\\d,]*(?:\\.\\d+)?\\s*(?:万|亿|[kKmM])?)";
     private static final Pattern UNSUPPORTED_PERFORMANCE_PROMISE = Pattern.compile(
             "(?:预计|预期|保证|确保|优化后|调整后|上线后|"
                     + "可(?:以)?(?:降(?:低|至|到)|提升|减少|缩短)|"
@@ -43,19 +45,51 @@ public class StrictResultValidator {
                     + "(?:可(?:以)?|能够|将(?:会)?|会|预计|预期|降(?:低|至|到)|减少(?:至|到)|缩短(?:至|到))"
                     + "[^。；\\n]{0,24}\\d+(?:\\.\\d+)?\\s*(?:行|rows?|次)",
             Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
-    private static final Pattern ACTUAL_ROW_CLAIM = Pattern.compile(
-            "(?:(?:实际|真实|平均)[^。；\\n]{0,16}(?:返回|输出|扫描|读取|处理|结果)[^。；\\n]{0,16}\\d[\\d,]*\\s*(?:行|rows?)|"
-                    + "actual\\s+(?:rows?|cardinality)\\s*(?:is|=|:)?\\s*\\d[\\d,]*)",
-            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     private static final Pattern ACTUAL_ROW_CLAIM_NUMBER = Pattern.compile(
-            "(?:(?:实际|真实|平均)[^。；\\n]{0,20}(?:返回|输出|扫描|读取|处理|结果)[^。；\\n]{0,20}?(\\d[\\d,]*)\\s*(?:行|rows?)|"
-                    + "actual\\s+(?:rows?|cardinality)\\s*(?:is|=|:)?\\s*(\\d[\\d,]*))",
+            "(?:(?:实际|真实|平均)[^。；\\n]{0,20}(?:"
+                    + "(?:扫描|读取|处理|返回|输出|结果)(?:的)?(?:行数|记录数)[^。；\\n]{0,12}?" + ROW_COUNT_VALUE + "(?:\\s*(?:行|条))?|"
+                    + "(?:扫描|读取|处理|返回|输出|结果)[^。；\\n]{0,12}?" + ROW_COUNT_VALUE + "\\s*(?:行|条))|"
+                    + "actual\\s+(?:rows?|cardinality)\\s*(?:is|are|=|:)?\\s*" + ROW_COUNT_VALUE + ")",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final Pattern UNQUALIFIED_ROW_CLAIM_NUMBER = Pattern.compile(
+            "(?:"
+                    + "(?:扫描|读取|处理|返回|输出|结果)(?:的)?(?:行数|记录数)[^。；\\n]{0,12}?" + ROW_COUNT_VALUE + "(?:\\s*(?:行|条))?|"
+                    + "(?:扫描|读取|处理|返回|输出)[^。；\\n]{0,16}?" + ROW_COUNT_VALUE + "\\s*(?:行|条)|"
+                    + "(?:scan(?:ned)?|read|return(?:ed)?|process(?:ed)?)\\s+rows?[^.;\\n]{0,12}?" + ROW_COUNT_VALUE + "(?:\\s*rows?)?|"
+                    + "(?:scan(?:ned)?|read|return(?:ed)?|process(?:ed)?)[^.;\\n]{0,16}?" + ROW_COUNT_VALUE + "\\s*rows?)",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final Pattern ROW_COUNT_REFERENCE_NUMBER = Pattern.compile(
+            "(?:(?:行数|记录数)[^。；\\n]{0,12}?" + ROW_COUNT_VALUE + "(?:\\s*(?:行|条))?|"
+                    + "(?:rows?|cardinality)[^.;\\n]{0,12}?" + ROW_COUNT_VALUE + "(?:\\s*rows?)?|"
+                    + ROW_COUNT_VALUE + "\\s*(?:行|条|rows?))",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final Pattern NON_ACTUAL_ROW_QUALIFIER = Pattern.compile(
+            "(?:估计|预估|估算|预计|计划估计|预计行数|"
+                    + "最多|至多|不超过|不多于|上限|限制|限定|封顶|"
+                    + "\\b(?:estimated|estimate|at\\s+most|up\\s+to|no\\s+more\\s+than|"
+                    + "maximum|max|limit(?:ed)?|cap(?:ped)?|caps?)\\b|\\best\\.?)",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final Pattern NEGATED_QUALIFIER_PREFIX = Pattern.compile(
+            "(?:并不是|不是|并非|不受|没有|无|非)\\s*$|"
+                    + "(?:\\b(?:not|no|without|is\\s+not|isn't|isnt)(?:\\s+(?:a|an))?\\s*)$",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final Pattern NEGATED_QUALIFIER_SUFFIX = Pattern.compile(
+            "^\\s*(?:值|结论|限制)?\\s*(?:并不是|不是|并非|不存在|不成立|不适用|"
+                    + "is\\s+not|isn't|isnt|does\\s+not\\s+apply)\\b",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final Pattern NEGATED_QUALIFIER_CONTEXT = Pattern.compile(
+            "(?:(?:并不是|不是|并非|非|没有|无)[^。；\\n]{0,6}(?:估计|预估|估算|预计)|"
+                    + "(?:不受|没有|无)[^。；\\n]{0,6}(?:上限|限制|限定|封顶)|"
+                    + "\\b(?:not|no|without)(?:\\s+(?:a|an))?\\s+[^.;\\n]{0,8}"
+                    + "(?:estimated|estimate|limit|max(?:imum)?|cap(?:ped)?)\\b)",
             Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     private static final Pattern ACTUAL_ROW_EVIDENCE_NUMBER = Pattern.compile(
-            "(?:(?:实际|真实|平均)[^。；\\n]{0,20}(?:返回|输出|扫描|读取|处理|结果)(?:行数)?[^。；\\n]{0,20}?(\\d[\\d,]*)(?:\\s*(?:行|rows?))?|"
-                    + "actual\\s+(?:rows?|cardinality)\\s*(?:is|=|:)?\\s*(\\d[\\d,]*)|"
-                    + "a-rows\\s*(?:is|=|:)?\\s*(\\d[\\d,]*)|"
-                    + "rows\\s+(?:produced|returned)\\s*(?:is|=|:)?\\s*(\\d[\\d,]*))",
+            "(?:(?:实际|真实|平均)[^。；\\n]{0,20}(?:"
+                    + "(?:扫描|读取|处理|返回|输出|结果)(?:的)?(?:行数|记录数)[^。；\\n]{0,12}?" + ROW_COUNT_VALUE + "(?:\\s*(?:行|条))?|"
+                    + "(?:扫描|读取|处理|返回|输出|结果)[^。；\\n]{0,12}?" + ROW_COUNT_VALUE + "\\s*(?:行|条))|"
+                    + "actual\\s+(?:rows?|cardinality)\\s*(?:is|are|=|:)?\\s*" + ROW_COUNT_VALUE + "|"
+                    + "a-rows\\s*(?:is|are|=|:)?\\s*" + ROW_COUNT_VALUE + "|"
+                    + "rows\\s+(?:produced|returned)\\s*(?:is|are|=|:)?\\s*" + ROW_COUNT_VALUE + ")",
             Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     private static final Pattern CREATE_INDEX_DEFINITION = Pattern.compile(
             "\\bcreate\\s+(?:unique\\s+)?index\\s+[`\"a-zA-Z0-9_$#.]+\\s+on\\s+"
@@ -388,7 +422,10 @@ public class StrictResultValidator {
             return;
         }
         validatePerformancePromise(field, value, outcome);
-        if (ACTUAL_ROW_CLAIM.matcher(value).find() && !hasMatchingActualRowEvidence(value, context)) {
+        Set<String> claimedRows = new HashSet<String>();
+        claimedRows.addAll(capturedRowCounts(ACTUAL_ROW_CLAIM_NUMBER.matcher(value)));
+        claimedRows.addAll(unqualifiedActualRowClaims(value));
+        if (!claimedRows.isEmpty() && !hasMatchingActualRowEvidence(claimedRows, context)) {
             outcome.reject(field + " 缺少实际行数证据，不得把估计行数写成实际结果");
         }
     }
@@ -400,12 +437,155 @@ public class StrictResultValidator {
         }
     }
 
-    private boolean hasMatchingActualRowEvidence(String claimText, ContextPackage context) {
+    private Set<String> unqualifiedActualRowClaims(String value) {
+        List<RowCountMention> mentions = new ArrayList<RowCountMention>();
+        Matcher rowMatcher = UNQUALIFIED_ROW_CLAIM_NUMBER.matcher(value);
+        while (rowMatcher.find()) {
+            mentions.add(new RowCountMention(
+                    rowMatcher.start(), rowMatcher.end(),
+                    capturedRowCountsFromCurrentMatch(rowMatcher), true));
+        }
+        Matcher referenceMatcher = ROW_COUNT_REFERENCE_NUMBER.matcher(value);
+        while (referenceMatcher.find()) {
+            if (!overlapsMention(mentions, referenceMatcher.start(), referenceMatcher.end())) {
+                mentions.add(new RowCountMention(
+                        referenceMatcher.start(), referenceMatcher.end(),
+                        capturedRowCountsFromCurrentMatch(referenceMatcher), false));
+            }
+        }
+        Set<String> values = new HashSet<String>();
+        for (int index = 0; index < mentions.size(); index++) {
+            RowCountMention mention = mentions.get(index);
+            if (mention.claim && !hasBoundNonActualQualifier(value, mentions, index)) {
+                values.addAll(mention.values);
+            }
+        }
+        return values;
+    }
+
+    private boolean overlapsMention(List<RowCountMention> mentions, int start, int end) {
+        for (RowCountMention mention : mentions) {
+            if (start < mention.end && mention.start < end) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasBoundNonActualQualifier(String value,
+                                               List<RowCountMention> mentions,
+                                               int mentionIndex) {
+        RowCountMention current = mentions.get(mentionIndex);
+        int clauseStart = clauseStart(value, current.start);
+        int clauseEnd = clauseEnd(value, current.end);
+        Matcher qualifierMatcher = NON_ACTUAL_ROW_QUALIFIER.matcher(value);
+        qualifierMatcher.region(clauseStart, clauseEnd);
+        while (qualifierMatcher.find()) {
+            if (isNegatedQualifier(value, qualifierMatcher, clauseStart, clauseEnd)) {
+                continue;
+            }
+            int distance = distanceBetween(
+                    qualifierMatcher.start(), qualifierMatcher.end(), current.start, current.end);
+            if (distance <= 32
+                    && nearestMentionIndex(mentions, clauseStart, clauseEnd,
+                    qualifierMatcher.start(), qualifierMatcher.end()) == mentionIndex) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isNegatedQualifier(String value,
+                                       Matcher qualifierMatcher,
+                                       int clauseStart,
+                                       int clauseEnd) {
+        int contextStart = Math.max(clauseStart, qualifierMatcher.start() - 16);
+        int contextEnd = Math.min(clauseEnd, qualifierMatcher.end() + 16);
+        if (NEGATED_QUALIFIER_CONTEXT.matcher(value.substring(contextStart, contextEnd)).find()) {
+            return true;
+        }
+        int prefixStart = Math.max(clauseStart, qualifierMatcher.start() - 16);
+        String prefix = value.substring(prefixStart, qualifierMatcher.start());
+        if (NEGATED_QUALIFIER_PREFIX.matcher(prefix).find()) {
+            return true;
+        }
+        int suffixEnd = Math.min(clauseEnd, qualifierMatcher.end() + 20);
+        String suffix = value.substring(qualifierMatcher.end(), suffixEnd);
+        return NEGATED_QUALIFIER_SUFFIX.matcher(suffix).find();
+    }
+
+    private int nearestMentionIndex(List<RowCountMention> mentions,
+                                    int clauseStart,
+                                    int clauseEnd,
+                                    int qualifierStart,
+                                    int qualifierEnd) {
+        int nearestIndex = -1;
+        int nearestDistance = Integer.MAX_VALUE;
+        for (int index = 0; index < mentions.size(); index++) {
+            RowCountMention mention = mentions.get(index);
+            if (mention.start < clauseStart || mention.end > clauseEnd) {
+                continue;
+            }
+            int distance = distanceBetween(qualifierStart, qualifierEnd, mention.start, mention.end);
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearestIndex = index;
+            }
+        }
+        return nearestIndex;
+    }
+
+    private int distanceBetween(int firstStart, int firstEnd, int secondStart, int secondEnd) {
+        if (firstEnd < secondStart) {
+            return secondStart - firstEnd;
+        }
+        if (secondEnd < firstStart) {
+            return firstStart - secondEnd;
+        }
+        return 0;
+    }
+
+    private int clauseStart(String value, int position) {
+        for (int index = position - 1; index >= 0; index--) {
+            if (isClauseBoundary(value, index)) {
+                return index + 1;
+            }
+        }
+        return 0;
+    }
+
+    private int clauseEnd(String value, int position) {
+        for (int index = position; index < value.length(); index++) {
+            if (isClauseBoundary(value, index)) {
+                return index;
+            }
+        }
+        return value.length();
+    }
+
+    private boolean isClauseBoundary(String value, int index) {
+        char current = value.charAt(index);
+        if (current == '。' || current == '；' || current == ';'
+                || current == '\n' || current == '！' || current == '!'
+                || current == '？' || current == '?') {
+            return true;
+        }
+        return current == '.'
+                && index + 1 < value.length()
+                && Character.isWhitespace(value.charAt(index + 1))
+                && !isEstimateAbbreviation(value, index);
+    }
+
+    private boolean isEstimateAbbreviation(String value, int periodIndex) {
+        int start = Math.max(0, periodIndex - 3);
+        return "est.".equalsIgnoreCase(value.substring(start, periodIndex + 1));
+    }
+
+    private boolean hasMatchingActualRowEvidence(Set<String> claimedRows, ContextPackage context) {
         if (context == null) {
             return false;
         }
-        Set<String> claimedRows = capturedNumbers(ACTUAL_ROW_CLAIM_NUMBER.matcher(claimText));
-        Set<String> evidenceRows = capturedNumbers(ACTUAL_ROW_EVIDENCE_NUMBER.matcher(combine(
+        Set<String> evidenceRows = capturedRowCounts(ACTUAL_ROW_EVIDENCE_NUMBER.matcher(combine(
                 context.getRuntimeMetricsText(), context.getExplainText())));
         if (claimedRows.isEmpty() || evidenceRows.isEmpty()) {
             return false;
@@ -413,16 +593,59 @@ public class StrictResultValidator {
         return evidenceRows.containsAll(claimedRows);
     }
 
-    private Set<String> capturedNumbers(Matcher matcher) {
+    private Set<String> capturedRowCounts(Matcher matcher) {
         Set<String> values = new HashSet<String>();
         while (matcher.find()) {
-            for (int group = 1; group <= matcher.groupCount(); group++) {
-                if (matcher.group(group) != null) {
-                    values.add(matcher.group(group).replace(",", ""));
-                }
+            values.addAll(capturedRowCountsFromCurrentMatch(matcher));
+        }
+        return values;
+    }
+
+    private Set<String> capturedRowCountsFromCurrentMatch(Matcher matcher) {
+        Set<String> values = new HashSet<String>();
+        for (int group = 1; group <= matcher.groupCount(); group++) {
+            if (matcher.group(group) != null) {
+                values.add(normalizeRowCount(matcher.group(group)));
             }
         }
         return values;
+    }
+
+    private String normalizeRowCount(String rawValue) {
+        String normalized = rawValue.replace(",", "").replace(" ", "").trim().toLowerCase(Locale.ROOT);
+        BigDecimal multiplier = BigDecimal.ONE;
+        if (normalized.endsWith("万")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+            multiplier = new BigDecimal("10000");
+        } else if (normalized.endsWith("亿")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+            multiplier = new BigDecimal("100000000");
+        } else if (normalized.endsWith("k")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+            multiplier = new BigDecimal("1000");
+        } else if (normalized.endsWith("m")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+            multiplier = new BigDecimal("1000000");
+        }
+        try {
+            return new BigDecimal(normalized).multiply(multiplier).stripTrailingZeros().toPlainString();
+        } catch (NumberFormatException ignored) {
+            return normalized;
+        }
+    }
+
+    private static final class RowCountMention {
+        private final int start;
+        private final int end;
+        private final Set<String> values;
+        private final boolean claim;
+
+        private RowCountMention(int start, int end, Set<String> values, boolean claim) {
+            this.start = start;
+            this.end = end;
+            this.values = values;
+            this.claim = claim;
+        }
     }
 
     private IndexDefinition validateCandidateDdl(IndexCandidate candidate, ValidationOutcome outcome) {
