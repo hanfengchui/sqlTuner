@@ -38,6 +38,25 @@ test("workspace shell renders session search and composer", async ({ page }) => 
   await expect(page.getByLabel("SQL 调优消息编辑器")).toBeVisible();
   await expect(page.getByRole("button", { name: "添加执行计划截图" })).toBeVisible();
   await expect(page.getByRole("button", { name: "补充证据" })).toHaveCount(0);
+
+  const desktopShell = await page.locator(".app-shell").evaluate((shell) => {
+    const sidebar = shell.querySelector<HTMLElement>(".sidebar");
+    const mainStage = shell.querySelector<HTMLElement>(".main-stage");
+    return {
+      viewportHeight: window.innerHeight,
+      shellHeight: shell.getBoundingClientRect().height,
+      sidebarHeight: sidebar?.getBoundingClientRect().height,
+      sidebarPosition: sidebar ? getComputedStyle(sidebar).position : "",
+      sidebarOverflowY: sidebar ? getComputedStyle(sidebar).overflowY : "",
+      mainOverflowY: mainStage ? getComputedStyle(mainStage).overflowY : ""
+    };
+  });
+
+  expect(desktopShell.shellHeight).toBe(desktopShell.viewportHeight);
+  expect(desktopShell.sidebarHeight).toBe(desktopShell.viewportHeight);
+  expect(desktopShell.sidebarPosition).toBe("sticky");
+  expect(desktopShell.sidebarOverflowY).toBe("hidden");
+  expect(desktopShell.mainOverflowY).toBe("auto");
 });
 
 test("workspace renders concise validated advice inline in the conversation", async ({ page }, testInfo) => {

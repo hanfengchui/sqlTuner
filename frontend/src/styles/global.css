@@ -66,8 +66,8 @@
 }
 
 * { box-sizing: border-box; }
-html, body, #root { width: 100%; min-width: 1366px; min-height: 100%; }
-body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text); }
+html, body, #root { width: 100%; min-width: 1366px; height: 100%; min-height: 0; }
+body { margin: 0; min-height: 0; overflow: hidden; background: var(--bg); color: var(--text); }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: 0.58; }
@@ -100,15 +100,21 @@ pre, code, .cm-editor { font-family: "JetBrains Mono", "SFMono-Regular", Consola
 }
 
 .app-shell {
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
   display: grid;
   grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  overflow: hidden;
 }
 
 .sidebar {
   background: var(--surface);
   border-right: 1px solid var(--border);
-  min-height: 100vh;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
   padding: 18px;
   display: flex;
   flex-direction: column;
@@ -187,9 +193,12 @@ pre, code, .cm-editor { font-family: "JetBrains Mono", "SFMono-Regular", Consola
 .avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-3); font-weight: 700; }
 .sidebar-footer > div:nth-child(2) { flex: 1; min-width: 0; }
 
-.main-stage { min-width: 0; display: flex; flex-direction: column; }
+.main-stage { min-width: 0; min-height: 0; height: 100vh; display: flex; flex-direction: column; overflow-y: auto; }
 .topbar {
   height: var(--topbar-h);
+  position: sticky;
+  top: 0;
+  z-index: 5;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -400,13 +409,16 @@ input:focus, select:focus, textarea:focus, .search-input:focus-within { border-c
 
 .workspace.chat-workspace {
   display: flex;
-  min-height: calc(100vh - var(--topbar-h));
+  height: calc(100vh - var(--topbar-h));
+  min-height: 0;
   padding: 24px 44px 14px;
+  overflow: hidden;
 }
 
 .chat-column {
   width: min(860px, 100%);
-  min-height: calc(100vh - var(--topbar-h) - 38px);
+  height: 100%;
+  min-height: 0;
   margin: 0 auto;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
