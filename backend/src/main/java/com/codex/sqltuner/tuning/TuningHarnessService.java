@@ -49,8 +49,8 @@ import java.util.Locale;
 @Service
 public class TuningHarnessService {
     private static final Logger log = LoggerFactory.getLogger(TuningHarnessService.class);
-    private static final long STREAM_PROGRESS_MIN_INTERVAL_NANOS = 150L * 1000L * 1000L;
-    private static final int STREAM_PROGRESS_CHAR_STEP = 512;
+    private static final long STREAM_PROGRESS_MIN_INTERVAL_NANOS = 300L * 1000L * 1000L;
+    private static final int STREAM_PROGRESS_CHAR_STEP = 1024;
     private static final String VISION_SYSTEM_PROMPT =
             "你是截图 OCR/视觉事实抽取器，只抽取图片中可见文字和执行计划事实。";
     private static final String VISION_EXTRACTION_PROMPT =
@@ -370,6 +370,11 @@ public class TuningHarnessService {
             public void onContent(String accumulatedContent, int receivedChars) {
                 String draft = projector.project(accumulatedContent);
                 long now = System.nanoTime();
+                // 后续字段一旦触发保守 SQL 门禁，projector 会返回空串。此时保留已经发布的
+                // 最后一版安全叙事，不能让界面退回空白，也不能继续广播被门禁的内容。
+                if (!hasText(draft) && hasText(lastDraft[0])) {
+                    return;
+                }
                 if (draft.equals(lastDraft[0])) {
                     if (hasText(draft)) {
                         return;

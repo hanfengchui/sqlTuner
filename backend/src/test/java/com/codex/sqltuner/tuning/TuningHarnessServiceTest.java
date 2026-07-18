@@ -7,6 +7,7 @@ import com.codex.sqltuner.llm.LlmClient;
 import com.codex.sqltuner.llm.LlmProperties;
 import com.codex.sqltuner.llm.LlmRequest;
 import com.codex.sqltuner.llm.LlmResponse;
+import com.codex.sqltuner.llm.LlmStreamListener;
 import com.codex.sqltuner.rule.RuleEngine;
 import com.codex.sqltuner.rule.SqlSanitizer;
 import com.codex.sqltuner.skill.SkillRepository;
@@ -215,6 +216,34 @@ class TuningHarnessServiceTest {
         assertThat(client.callCount()).isEqualTo(2);
         assertThat(taskRepository.getForUser(task.getId(), 1L).getStatus()).isEqualTo(TaskStatus.DONE);
         assertThat(task.getArtifacts()).extracting("nodeName").contains("resultValidateFailed", "llmRepair");
+    }
+
+    @Test
+    void keepsLastSafeDraftWhenLaterNarrativeTriggersSqlGate() {
+        String safeAccumulated = "{\"analysisNarrative\":{\"conclusion\":\"安全结论\"";
+        String gatedAccumulated = "{\"analysisNarrative\":{\"conclusion\":\"安全结论\","
+                + "\"sections\":[{\"title\":\"主建议\",\"body\":\"CREATE INDEX idx_x ON t(c)\"}]}}";
+        StreamingRecordingLlmClient client = new StreamingRecordingLlmClient(
+                safeAccumulated,
+                gatedAccumulated,
+                mockContent());
+        RecordingTaskEventBroker broker = new RecordingTaskEventBroker();
+        TuningHarnessService service = service(client, broker);
+
+        SqlTuningTask task = service.createTask(1L, sqlOnlyRequest());
+        service.run(task);
+
+        assertThat(broker.streams()).anyMatch(chunk -> "安全结论".equals(chunk.getDraftText()));
+        int firstSafe = -1;
+        for (int i = 0; i < broker.streams().size(); i++) {
+            if ("安全结论".equals(broker.streams().get(i).getDraftText())) {
+                firstSafe = i;
+                break;
+            }
+        }
+        assertThat(firstSafe).isGreaterThanOrEqualTo(0);
+        assertThat(broker.streams().subList(firstSafe, broker.streams().size()))
+                .allMatch(chunk -> chunk.getDraftText() != null && !chunk.getDraftText().isEmpty());
     }
 
     @Test
@@ -540,6 +569,10 @@ class TuningHarnessServiceTest {
     }
 
     private TuningHarnessService service(LlmClient llmClient) {
+        return service(llmClient, new TaskEventBroker());
+    }
+
+    private TuningHarnessService service(LlmClient llmClient, TaskEventBroker eventBroker) {
         return new TuningHarnessService(
                 taskRepository,
                 conversationRepository,
@@ -552,7 +585,7 @@ class TuningHarnessServiceTest {
                 new com.codex.sqltuner.tuning.accuracy.ContextAssessor(),
                 new com.codex.sqltuner.tuning.accuracy.PromptCompiler(),
                 new com.codex.sqltuner.tuning.accuracy.StrictResultValidator(new com.codex.sqltuner.tuning.accuracy.SqlStatementParser()),
-                new TaskEventBroker(),
+                eventBroker,
                 new InputImageValidator(),
                 inputImageRepository
         );
@@ -676,6 +709,51 @@ class TuningHarnessServiceTest {
 
         private List<LlmRequest> requests() {
             return requests;
+        }
+    }
+
+    private static final class StreamingRecordingLlmClient implements LlmClient {
+        private final String safeAccumulated;
+        private final String gatedAccumulated;
+        private final String finalContent;
+
+        private StreamingRecordingLlmClient(String safeAccumulated,
+                                            String gatedAccumulated,
+                                            String finalContent) {
+            this.safeAccumulated = safeAccumulated;
+            this.gatedAccumulated = gatedAccumulated;
+            this.finalContent = finalContent;
+        }
+
+        @Override
+        public LlmResponse analyze(LlmRequest request) {
+            return new LlmResponse("test", "test", finalContent, 1L, false);
+        }
+
+        @Override
+        public LlmResponse analyze(LlmRequest request, LlmStreamListener listener) {
+            listener.onContent(safeAccumulated, safeAccumulated.length());
+            listener.onContent(gatedAccumulated, gatedAccumulated.length());
+            return analyze(request);
+        }
+    }
+
+    private static final class RecordingTaskEventBroker extends TaskEventBroker {
+        private final List<TaskStreamChunk> streams = new java.util.ArrayList<TaskStreamChunk>();
+
+        @Override
+        public void publishModelStream(SqlTuningTask task, TaskStreamChunk chunk) {
+            TaskStreamChunk copy = new TaskStreamChunk(
+                    chunk.getPhase(),
+                    chunk.getDraftText(),
+                    chunk.getReceivedChars(),
+                    chunk.getSequence());
+            copy.setAttempt(chunk.getAttempt());
+            streams.add(copy);
+        }
+
+        private List<TaskStreamChunk> streams() {
+            return streams;
         }
     }
 
