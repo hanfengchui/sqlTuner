@@ -158,7 +158,8 @@ public class TuningHarnessService {
             Conversation conversation = conversationRepository.create(userId, "新建调优");
             conversationId = conversation.getId();
         } else {
-            conversationRepository.getForUser(conversationId, userId);
+            // 与过期会话清理共用父行锁，避免用户继续旧会话时被清理任务并发删除。
+            conversationRepository.getForUserForUpdate(conversationId, userId);
         }
 
         SqlTuningTask task = new SqlTuningTask();

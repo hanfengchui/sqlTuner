@@ -54,8 +54,16 @@ public class ConversationRepository {
     }
 
     public Conversation getForUser(Long id, Long userId) {
+        return getForUser(id, userId, false);
+    }
+
+    public Conversation getForUserForUpdate(Long id, Long userId) {
+        return getForUser(id, userId, true);
+    }
+
+    private Conversation getForUser(Long id, Long userId, boolean forUpdate) {
         List<Conversation> rows = jdbcTemplate.query(
-                "SELECT * FROM conversations WHERE id = ? AND user_id = ?",
+                "SELECT * FROM conversations WHERE id = ? AND user_id = ?" + (forUpdate ? " FOR UPDATE" : ""),
                 conversationMapper(), id, userId);
         if (rows.isEmpty()) {
             throw new NotFoundException("会话不存在");
@@ -111,11 +119,27 @@ public class ConversationRepository {
     @Transactional
     public void deleteForUser(final Long id, final Long userId) {
         Conversation conversation = getForUser(id, userId);
-        jdbcTemplate.update("DELETE FROM task_input_images WHERE task_id IN (SELECT id FROM tuning_tasks WHERE conversation_id = ?)", conversation.getId());
-        jdbcTemplate.update("DELETE FROM task_artifacts WHERE task_id IN (SELECT id FROM tuning_tasks WHERE conversation_id = ?)", conversation.getId());
-        jdbcTemplate.update("DELETE FROM tuning_tasks WHERE conversation_id = ?", conversation.getId());
-        jdbcTemplate.update("DELETE FROM messages WHERE conversation_id = ?", conversation.getId());
-        jdbcTemplate.update("DELETE FROM conversations WHERE id = ?", conversation.getId());
+        deleteConversation(conversation.getId());
+    }
+
+    @Transactional
+    public int deleteExpiredTerminalConversations(LocalDateTime cutoff, int batchSize) {
+        if (cutoff == null || batchSize <= 0) {
+            return 0;
+        }
+        List<Long> conversationIds = jdbcTemplate.queryForList(
+                "SELECT c.id FROM conversations c "
+                        + "WHERE c.updated_at < ? "
+                        + "AND NOT EXISTS (SELECT 1 FROM tuning_tasks t "
+                        + "WHERE t.conversation_id = c.id AND t.status NOT IN ('DONE', 'FAILED')) "
+                        + "ORDER BY c.updated_at ASC, c.id ASC LIMIT ? FOR UPDATE",
+                Long.class, Timestamp.valueOf(cutoff), batchSize);
+        for (Long conversationId : conversationIds) {
+            if (conversationId != null) {
+                deleteConversation(conversationId);
+            }
+        }
+        return conversationIds.size();
     }
 
     public void restore(final List<Conversation> conversations, final List<Message> messages) {
@@ -145,6 +169,14 @@ public class ConversationRepository {
         }
         String normalized = content.replace('\n', ' ').replace('\r', ' ').trim();
         return normalized.length() > 32 ? normalized.substring(0, 32) : normalized;
+    }
+
+    private void deleteConversation(Long conversationId) {
+        jdbcTemplate.update("DELETE FROM task_input_images WHERE task_id IN (SELECT id FROM tuning_tasks WHERE conversation_id = ?)", conversationId);
+        jdbcTemplate.update("DELETE FROM task_artifacts WHERE task_id IN (SELECT id FROM tuning_tasks WHERE conversation_id = ?)", conversationId);
+        jdbcTemplate.update("DELETE FROM tuning_tasks WHERE conversation_id = ?", conversationId);
+        jdbcTemplate.update("DELETE FROM messages WHERE conversation_id = ?", conversationId);
+        jdbcTemplate.update("DELETE FROM conversations WHERE id = ?", conversationId);
     }
 
     private RowMapper<Conversation> conversationMapper() {

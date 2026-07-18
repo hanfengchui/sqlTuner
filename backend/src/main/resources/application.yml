@@ -50,6 +50,13 @@ app:
     max-queued-per-user: ${SQL_TUNER_QUEUE_MAX_PER_USER:10}
     lease-seconds: ${SQL_TUNER_QUEUE_LEASE_SECONDS:90}
     heartbeat-seconds: ${SQL_TUNER_QUEUE_HEARTBEAT_SECONDS:15}
+  retention:
+    enabled: ${SQL_TUNER_RETENTION_ENABLED:false}
+    conversation-days: ${SQL_TUNER_RETENTION_DAYS:7}
+    batch-size: ${SQL_TUNER_RETENTION_BATCH_SIZE:100}
+    max-batches: ${SQL_TUNER_RETENTION_MAX_BATCHES:10}
+    initial-delay-ms: ${SQL_TUNER_RETENTION_INITIAL_DELAY_MS:60000}
+    interval-ms: ${SQL_TUNER_RETENTION_INTERVAL_MS:86400000}
   legacy-import:
     enabled: ${SQL_TUNER_LEGACY_IMPORT_ENABLED:false}
     dry-run: ${SQL_TUNER_LEGACY_IMPORT_DRY_RUN:true}
