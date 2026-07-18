@@ -504,6 +504,35 @@ class TuningHarnessServiceTest {
         assertThat(task.getBusinessContext()).contains("待核验，不作为事实证据", "补充文本 EXPLAIN");
     }
 
+    @Test
+    void pastedCompleteReportAutoPopulatesEvidenceWithoutExtraFormFields() {
+        TuningHarnessService service = service();
+        CreateTuningTaskRequest request = new CreateTuningTaskRequest();
+        request.setDbDialect("OceanBase Oracle");
+        request.setSqlText("SQL: SELECT id FROM orders WHERE tenant_id = ? ORDER BY created_at DESC\n"
+                + "OB Version: 4.3.2.1\n"
+                + "表结构:\n"
+                + "CREATE TABLE orders (id BIGINT PRIMARY KEY, tenant_id BIGINT, created_at TIMESTAMP);\n"
+                + "索引信息:\n"
+                + "CREATE INDEX idx_orders_tenant ON orders(tenant_id);\n"
+                + "EXPLAIN:\n"
+                + "| ID | OPERATOR | NAME | EST. ROWS |\n"
+                + "| 0 | TABLE FULL SCAN | orders | 2300000 |\n"
+                + "表统计:\n"
+                + "orders: 2300000 行\n");
+        request.setDeepAnalysis(Boolean.FALSE);
+
+        SqlTuningTask task = service.createTask(1L, request);
+
+        assertThat(task.getOriginalSql()).startsWith("SELECT id FROM orders");
+        assertThat(task.getDbDialect()).isEqualTo("OceanBase Oracle");
+        assertThat(task.getSchemaText()).contains("CREATE TABLE orders");
+        assertThat(task.getIndexText()).contains("idx_orders_tenant");
+        assertThat(task.getExplainText()).contains("TABLE FULL SCAN");
+        assertThat(task.getTableStatsText()).contains("2300000");
+        assertThat(task.getObVersion()).isEqualTo("4.3.2.1");
+    }
+
     private TuningHarnessService service() {
         LlmProperties properties = new LlmProperties();
         properties.setProvider("mock");

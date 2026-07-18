@@ -203,12 +203,18 @@ public class TuningHarnessService {
         boolean structuredReport = hasText(parsed.getRuntimeMetricsText())
                 || hasText(parsed.getTableStatsText())
                 || hasText(parsed.getPriorAnalysisText())
-                || hasText(parsed.getExplainText());
+                || hasText(parsed.getExplainText())
+                || hasText(parsed.getSchemaText())
+                || hasText(parsed.getIndexText())
+                || hasText(parsed.getObVersion());
         if (!structuredReport) {
             return;
         }
         request.setSqlText(parsed.getExtractedSql());
-        request.setDbDialect(parsed.getInferredDialect());
+        if (!hasText(request.getDbDialect()) || "OceanBase Oracle".equals(parsed.getInferredDialect())) {
+            // 只有 Oracle 专有语法才足以覆盖用户选择；普通 SELECT 默认 MySQL 不能反向推断方言。
+            request.setDbDialect(parsed.getInferredDialect());
+        }
         request.setInputType("sql");
         if (!hasText(request.getRuntimeMetricsText())) {
             request.setRuntimeMetricsText(parsed.getRuntimeMetricsText());
@@ -218,6 +224,15 @@ public class TuningHarnessService {
         }
         if (!hasText(request.getExplainText())) {
             request.setExplainText(parsed.getExplainText());
+        }
+        if (!hasText(request.getSchemaText())) {
+            request.setSchemaText(parsed.getSchemaText());
+        }
+        if (!hasText(request.getIndexText())) {
+            request.setIndexText(parsed.getIndexText());
+        }
+        if (!hasText(request.getObVersion())) {
+            request.setObVersion(parsed.getObVersion());
         }
         if (hasText(parsed.getPriorAnalysisText())) {
             String existing = request.getBusinessContext();

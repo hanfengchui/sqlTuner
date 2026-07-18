@@ -22,23 +22,46 @@ public class ReportTextParser {
     private static final Pattern ROOT_CAUSE_LABEL = Pattern.compile("(?<!\\S)根因\\s*[:：]\\s*");
     private static final Pattern THROTTLE_LABEL = Pattern.compile("(?<!\\S)限流值\\s*[:：]\\s*");
     private static final Pattern ADVICE_LABEL = Pattern.compile("(?<!\\S)优化建议\\s*[:：]\\s*");
-    private static final Pattern PLAN_LABEL = Pattern.compile("(?im)^[\\t ]*执行计划[\\t ]*[:：]?[\\t ]*(?:\\r?\\n|$)");
+    private static final Pattern PLAN_LABEL = Pattern.compile(
+            "(?im)^[\\t ]*(?:执行计划(?:文本)?|EXPLAIN(?:\\s+PLAN)?|PLAN)[\\t ]*(?:[:：][\\t ]*|(?:\\r?\\n|$))");
+    private static final Pattern SCHEMA_LABEL = Pattern.compile(
+            "(?im)^[\\t ]*(?:表结构|表定义|建表语句|表\\s*DDL|SCHEMA|TABLE\\s+DDL)[\\t ]*(?:[:：][\\t ]*|(?:\\r?\\n|$))");
+    private static final Pattern INDEX_LABEL = Pattern.compile(
+            "(?im)^[\\t ]*(?:现有[\\t ]*)?(?:索引(?:定义|信息|列表)?|INDEX(?:ES)?|INDEX[\\t ]+DEFINITIONS?|SHOW[\\t ]+INDEX(?:ES)?)[\\t ]*(?:[:：][\\t ]*|(?:\\r?\\n|$))");
+    private static final Pattern TABLE_STATS_LABEL = Pattern.compile(
+            "(?im)^[\\t ]*(?:表统计(?:信息)?|表行数|TABLE[\\t ]+STATS?)[\\t ]*(?:[:：][\\t ]*|(?:\\r?\\n|$))");
+    private static final Pattern OB_VERSION_LABEL = Pattern.compile(
+            "(?im)^[\\t ]*(?:(?:OCEANBASE|OB)[\\t ]*)?(?:数据库[\\t ]*)?(?:版本|VERSION)[\\t ]*[:：][\\t ]*([^\\r\\n]+)");
+    private static final Pattern OB_VERSION_INLINE = Pattern.compile(
+            "(?i)\\b(?:OCEANBASE|OB)[\\t ]*(?:(?:CE|EE)[\\t ]*)?(?:VERSION[\\t ]*)?[vV]?([0-9]+(?:\\.[0-9]+){1,5}(?:[-_][A-Za-z0-9.]+)?)");
 
     private static final Pattern SQL_START = Pattern.compile("(?is)^\\s*(?:SELECT|WITH|INSERT|UPDATE|DELETE)\\b");
     private static final Pattern ORACLE_DIALECT = Pattern.compile("(?is)(?:\\bROWNUM\\b|\\bFETCH\\s+FIRST\\b|\"[^\"\\r\\n]+\")");
+    private static final Pattern CREATE_TABLE_STATEMENT = Pattern.compile(
+            "(?is)\\bCREATE\\s+(?:GLOBAL\\s+TEMPORARY\\s+)?TABLE\\b.*?(?:;|\\z)");
+    private static final Pattern CREATE_INDEX_STATEMENT = Pattern.compile(
+            "(?is)\\bCREATE\\s+(?:UNIQUE\\s+)?INDEX\\b.*?(?:;|\\z)");
+    private static final Pattern INDEX_DEFINITION = Pattern.compile(
+            "(?is)\\b(?:CREATE\\s+(?:UNIQUE\\s+)?INDEX|SHOW\\s+INDEX(?:ES)?|PRIMARY\\s+KEY|UNIQUE\\s+(?:KEY|INDEX)|KEY\\s+[`\"]?[A-Za-z0-9_$]+|INDEX\\s+[`\"]?[A-Za-z0-9_$]+)\\b");
     private static final Pattern TABLE_ROW_COUNT = Pattern.compile(
             "(?i)^\\s*SELECT\\s+(?:\\*|COUNT\\s*\\(\\s*(?:\\*|1)\\s*\\))\\s+FROM\\s+([^\\s;]+)"
                     + "(?:\\s+[A-Za-z][A-Za-z0-9_$]*)?\\s*;?\\s+(?:行数\\s*[:：]?\\s*)?"
                     + "([0-9][0-9,]*)\\s*(?:行|ROWS?)?\\s*$");
     private static final Pattern PLAN_OPERATOR = Pattern.compile(
             "(?is)(?:\\bOPERATOR\\b|\\bPLAN\\s+HASH\\s+VALUE\\b|\\bTABLE\\s+(?:ACCESS|SCAN)\\b|"
-                    + "\\bINDEX\\s+(?:SCAN|RANGE|LOOKUP)\\b|\\bNESTED[ _-]*LOOP\\b|\\bHASH\\s+JOIN\\b|"
+                    + "\\bTABLE\\s+(?:ACCESS\\s+)?(?:FULL|RANGE|GET|SCAN)\\b|"
+                    + "\\bINDEX\\s+(?:SCAN|RANGE|LOOKUP|UNIQUE)\\b|\\bNESTED[ _-]*LOOP\\b|\\bHASH\\s+JOIN\\b|"
                     + "\\bMERGE\\s+JOIN\\b|\\bPX\\s+(?:COORDINATOR|SEND|RECEIVE)\\b|\\bEXCHANGE\\b|"
                     + "\\bSUBPLAN\\b|\\bEST\\.?\\s*ROWS\\b|\\bSORT\\b|\\bGROUP\\s+BY\\b)");
 
     private static final List<Pattern> SQL_END_LABELS = Arrays.asList(
             EXECUTIONS_LABEL, CPU_LABEL, DURATION_LABEL, ROOT_CAUSE_LABEL,
-            THROTTLE_LABEL, ADVICE_LABEL, PLAN_LABEL);
+            THROTTLE_LABEL, ADVICE_LABEL, PLAN_LABEL, SCHEMA_LABEL, INDEX_LABEL,
+            TABLE_STATS_LABEL, OB_VERSION_LABEL);
+    private static final List<Pattern> SECTION_END_LABELS = Arrays.asList(
+            SQL_LABEL, EXECUTIONS_LABEL, CPU_LABEL, DURATION_LABEL, ROOT_CAUSE_LABEL,
+            THROTTLE_LABEL, ADVICE_LABEL, PLAN_LABEL, SCHEMA_LABEL, INDEX_LABEL,
+            TABLE_STATS_LABEL, OB_VERSION_LABEL);
 
     public ParsedReport parse(String input) {
         if (input == null || input.trim().isEmpty()) {
@@ -52,7 +75,7 @@ public class ReportTextParser {
         if (looksLikeSql(text)) {
             List<String> warnings = new ArrayList<String>();
             warnings.add("未识别到报告字段，已按纯 SQL 处理；请补充运行指标和文本 EXPLAIN。");
-            return new ParsedReport(text.trim(), inferDialect(text), "", "", "", "", warnings);
+            return new ParsedReport(text.trim(), inferDialect(text), "", "", "", "", "", "", "", warnings);
         }
 
         Matcher sqlLabel = SQL_LABEL.matcher(text);
@@ -67,27 +90,41 @@ public class ReportTextParser {
 
         String sqlId = extractSqlId(text);
         String executions = extractValue(text, EXECUTIONS_LABEL, Arrays.asList(
-                CPU_LABEL, DURATION_LABEL, ROOT_CAUSE_LABEL, THROTTLE_LABEL, ADVICE_LABEL, PLAN_LABEL));
+                CPU_LABEL, DURATION_LABEL, ROOT_CAUSE_LABEL, THROTTLE_LABEL, ADVICE_LABEL, PLAN_LABEL,
+                SCHEMA_LABEL, INDEX_LABEL, TABLE_STATS_LABEL, OB_VERSION_LABEL));
         String cpu = extractValue(text, CPU_LABEL, Arrays.asList(
-                DURATION_LABEL, ROOT_CAUSE_LABEL, THROTTLE_LABEL, ADVICE_LABEL, PLAN_LABEL));
+                DURATION_LABEL, ROOT_CAUSE_LABEL, THROTTLE_LABEL, ADVICE_LABEL, PLAN_LABEL,
+                SCHEMA_LABEL, INDEX_LABEL, TABLE_STATS_LABEL, OB_VERSION_LABEL));
         String duration = extractValue(text, DURATION_LABEL, Arrays.asList(
-                ROOT_CAUSE_LABEL, THROTTLE_LABEL, ADVICE_LABEL, PLAN_LABEL));
+                ROOT_CAUSE_LABEL, THROTTLE_LABEL, ADVICE_LABEL, PLAN_LABEL,
+                SCHEMA_LABEL, INDEX_LABEL, TABLE_STATS_LABEL, OB_VERSION_LABEL));
         String rootCause = extractValue(text, ROOT_CAUSE_LABEL, Arrays.asList(
-                THROTTLE_LABEL, ADVICE_LABEL, PLAN_LABEL));
-        String throttle = extractValue(text, THROTTLE_LABEL, Arrays.asList(ADVICE_LABEL, PLAN_LABEL));
-        String advice = extractValue(text, ADVICE_LABEL, Arrays.asList(PLAN_LABEL));
+                THROTTLE_LABEL, ADVICE_LABEL, PLAN_LABEL, SCHEMA_LABEL, INDEX_LABEL,
+                TABLE_STATS_LABEL, OB_VERSION_LABEL));
+        String throttle = extractValue(text, THROTTLE_LABEL, Arrays.asList(
+                ADVICE_LABEL, PLAN_LABEL, SCHEMA_LABEL, INDEX_LABEL, TABLE_STATS_LABEL, OB_VERSION_LABEL));
+        String advice = extractValue(text, ADVICE_LABEL, Arrays.asList(
+                PLAN_LABEL, SCHEMA_LABEL, INDEX_LABEL, TABLE_STATS_LABEL, OB_VERSION_LABEL));
 
         List<String> warnings = new ArrayList<String>();
         String priorAnalysis = buildPriorAnalysis(rootCause, advice, warnings);
         PlanExtraction plan = extractPlan(text, warnings);
+        String schemaText = extractSchema(text);
+        String indexText = extractIndexText(text, schemaText);
+        String explicitStats = extractTableStats(text);
+        String tableStats = joinNonEmpty(plan.tableStatsText, explicitStats);
+        String obVersion = extractObVersion(text);
 
         return new ParsedReport(
                 sql,
                 inferDialect(sql),
                 buildRuntimeMetrics(sqlId, executions, cpu, duration, throttle),
-                plan.tableStatsText,
+                tableStats,
                 priorAnalysis,
                 plan.explainText,
+                schemaText,
+                indexText,
+                obVersion,
                 warnings);
     }
 
@@ -175,6 +212,69 @@ public class ReportTextParser {
         return joinSections(sections);
     }
 
+    private static String extractSchema(String text) {
+        String labeled = extractLabeledSection(text, SCHEMA_LABEL);
+        if (CREATE_TABLE_STATEMENT.matcher(labeled).find()) {
+            return labeled;
+        }
+        return extractStatements(directEvidencePrefix(text), CREATE_TABLE_STATEMENT);
+    }
+
+    private static String extractIndexText(String text, String schemaText) {
+        String labeled = extractLabeledSection(text, INDEX_LABEL);
+        if (hasText(labeled)) {
+            return labeled;
+        }
+        if (INDEX_DEFINITION.matcher(schemaText).find()) {
+            // 建表 DDL 中的主键和索引同样是当前索引证据，无需要求用户重复粘贴。
+            return schemaText;
+        }
+        return extractStatements(directEvidencePrefix(text), CREATE_INDEX_STATEMENT);
+    }
+
+    private static String extractTableStats(String text) {
+        return extractLabeledSection(text, TABLE_STATS_LABEL);
+    }
+
+    private static String extractObVersion(String text) {
+        Matcher labeled = OB_VERSION_LABEL.matcher(text);
+        if (labeled.find()) {
+            String value = cleanValue(labeled.group(1));
+            return value.matches(".*[0-9].*") ? value : "";
+        }
+        Matcher inline = OB_VERSION_INLINE.matcher(text);
+        if (inline.find()) {
+            return "OceanBase " + inline.group(1);
+        }
+        return "";
+    }
+
+    private static String extractLabeledSection(String text, Pattern label) {
+        Matcher matcher = label.matcher(text);
+        if (!matcher.find()) {
+            return "";
+        }
+        int end = firstLabelStart(text, matcher.end(), SECTION_END_LABELS);
+        return text.substring(matcher.end(), end).trim();
+    }
+
+    private static String directEvidencePrefix(String text) {
+        int end = firstLabelStart(text, 0, Arrays.asList(ROOT_CAUSE_LABEL, ADVICE_LABEL));
+        return text.substring(0, end);
+    }
+
+    private static String extractStatements(String text, Pattern statement) {
+        List<String> statements = new ArrayList<String>();
+        Matcher matcher = statement.matcher(text);
+        while (matcher.find()) {
+            String value = matcher.group().trim();
+            if (!value.isEmpty()) {
+                statements.add(value);
+            }
+        }
+        return join(statements);
+    }
+
     private static PlanExtraction extractPlan(String text, List<String> warnings) {
         Matcher planLabel = PLAN_LABEL.matcher(text);
         if (!planLabel.find()) {
@@ -182,7 +282,7 @@ public class ReportTextParser {
             return new PlanExtraction("", "");
         }
 
-        String planBody = text.substring(planLabel.end()).trim();
+        String planBody = extractLabeledSection(text, PLAN_LABEL);
         List<String> explainLines = new ArrayList<String>();
         List<String> tableStatLines = new ArrayList<String>();
         for (String line : planBody.split("\\n")) {
@@ -204,6 +304,20 @@ public class ReportTextParser {
             }
         }
         return new PlanExtraction(explainText, join(tableStatLines));
+    }
+
+    private static String joinNonEmpty(String left, String right) {
+        if (!hasText(left)) {
+            return right;
+        }
+        if (!hasText(right) || left.equals(right)) {
+            return left;
+        }
+        return left + "\n" + right;
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 
     private static String join(List<String> lines) {

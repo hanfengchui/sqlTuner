@@ -1,6 +1,14 @@
 package com.codex.sqltuner.tuning.input;
 
+import com.codex.sqltuner.rule.SqlDialect;
+import com.codex.sqltuner.tuning.SqlTuningTask;
+import com.codex.sqltuner.tuning.accuracy.ContextAssessor;
+import com.codex.sqltuner.tuning.accuracy.ContextPackage;
+import com.codex.sqltuner.tuning.accuracy.SqlStatementParser;
+import com.codex.sqltuner.tuning.accuracy.SqlStatementProfile;
 import org.junit.jupiter.api.Test;
+
+import java.util.Collections;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -49,7 +57,54 @@ class ReportTextParserTest {
                 .contains("历史优化建议（待核验，不作为事实证据）")
                 .contains("CREATE INDEX idx_grp_customer_ec_be");
         assertThat(result.getExplainText()).isEmpty();
+        assertThat(result.getSchemaText()).isEmpty();
+        assertThat(result.getIndexText()).isEmpty();
+        assertThat(result.getObVersion()).isEmpty();
         assertThat(result.getWarnings()).anyMatch(warning -> warning.contains("仅包含表行数查询"));
+    }
+
+    @Test
+    void extractsExplicitEvidenceSectionsAndUnlocksDdlOnlyWhenTheyAreComplete() {
+        String report = "SQL: SELECT id, created_at FROM orders "
+                + "WHERE tenant_id = ? AND status = ? ORDER BY created_at DESC\n"
+                + "OceanBase 版本: 4.3.2.1\n"
+                + "表结构:\n"
+                + "CREATE TABLE orders (\n"
+                + "  id BIGINT NOT NULL,\n"
+                + "  tenant_id BIGINT NOT NULL,\n"
+                + "  status VARCHAR(16) NOT NULL,\n"
+                + "  created_at TIMESTAMP NOT NULL,\n"
+                + "  PRIMARY KEY (id)\n"
+                + ");\n"
+                + "现有索引:\n"
+                + "CREATE INDEX idx_orders_tenant ON orders(tenant_id);\n"
+                + "执行计划:\n"
+                + "| ID | OPERATOR | NAME | EST. ROWS | COST |\n"
+                + "| 0 | TABLE FULL SCAN | orders | 2300000 | 90321 |\n"
+                + "表统计:\n"
+                + "orders: 2300000 行，status NDV: 8\n";
+
+        ParsedReport result = parser.parse(report);
+
+        assertThat(result.getExtractedSql()).startsWith("SELECT id, created_at FROM orders");
+        assertThat(result.getSchemaText()).contains("CREATE TABLE orders", "PRIMARY KEY");
+        assertThat(result.getIndexText()).contains("CREATE INDEX idx_orders_tenant");
+        assertThat(result.getExplainText()).contains("TABLE FULL SCAN", "EST. ROWS");
+        assertThat(result.getTableStatsText()).contains("orders: 2300000 行", "status NDV: 8");
+        assertThat(result.getObVersion()).isEqualTo("4.3.2.1");
+
+        SqlTuningTask task = new SqlTuningTask();
+        task.setSchemaText(result.getSchemaText());
+        task.setIndexText(result.getIndexText());
+        task.setExplainText(result.getExplainText());
+        task.setTableStatsText(result.getTableStatsText());
+        task.setObVersion(result.getObVersion());
+        SqlStatementProfile profile = new SqlStatementParser().parse(result.getExtractedSql(), SqlDialect.OB_MYSQL);
+        ContextPackage context = new ContextAssessor().assess(task, profile, Collections.emptyList());
+
+        assertThat(context.getAssessment().getCompleteness()).isEqualTo("FULL");
+        assertThat(context.isAllowIndexDdl()).isTrue();
+        assertThat(context.isAllowHighConfidence()).isTrue();
     }
 
     @Test

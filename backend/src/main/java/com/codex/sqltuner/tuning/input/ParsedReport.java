@@ -11,6 +11,9 @@ public final class ParsedReport {
     private final String tableStatsText;
     private final String priorAnalysisText;
     private final String explainText;
+    private final String schemaText;
+    private final String indexText;
+    private final String obVersion;
     private final List<String> warnings;
 
     public ParsedReport(String extractedSql,
@@ -19,6 +22,9 @@ public final class ParsedReport {
                         String tableStatsText,
                         String priorAnalysisText,
                         String explainText,
+                        String schemaText,
+                        String indexText,
+                        String obVersion,
                         List<String> warnings) {
         this.extractedSql = valueOrEmpty(extractedSql);
         this.inferredDialect = valueOrEmpty(inferredDialect);
@@ -26,6 +32,9 @@ public final class ParsedReport {
         this.tableStatsText = valueOrEmpty(tableStatsText);
         this.priorAnalysisText = valueOrEmpty(priorAnalysisText);
         this.explainText = valueOrEmpty(explainText);
+        this.schemaText = valueOrEmpty(schemaText);
+        this.indexText = valueOrEmpty(indexText);
+        this.obVersion = valueOrEmpty(obVersion);
         this.warnings = Collections.unmodifiableList(new ArrayList<String>(warnings == null
                 ? Collections.<String>emptyList()
                 : warnings));
@@ -53,6 +62,18 @@ public final class ParsedReport {
 
     public String getExplainText() {
         return explainText;
+    }
+
+    public String getSchemaText() {
+        return schemaText;
+    }
+
+    public String getIndexText() {
+        return indexText;
+    }
+
+    public String getObVersion() {
+        return obVersion;
     }
 
     public List<String> getWarnings() {

@@ -191,7 +191,7 @@ export function SqlInputPanel({ loading, onSubmit }: SqlInputPanelProps) {
         onChange={(event) => setSqlText(event.target.value)}
         onKeyDown={handleKeyDown}
         aria-label="SQL 或巡检报告文本"
-        placeholder="粘贴 SQL 或完整巡检报告，直接得到优化建议"
+        placeholder="粘贴 SQL、巡检报告、DDL 或 EXPLAIN，直接分析"
         rows={5}
       />
 
