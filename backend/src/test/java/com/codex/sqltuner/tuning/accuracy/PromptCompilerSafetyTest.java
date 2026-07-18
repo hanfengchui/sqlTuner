@@ -24,7 +24,9 @@ class PromptCompilerSafetyTest {
                 .contains("analysisNarrative 是面向工程师的主答案")
                 .contains("结论先行")
                 .contains("1 至 3 个简短段落")
+                .contains("截图显示、待文本 EXPLAIN 确认")
                 .contains("不得使用 MySQL 专有 FILESORT")
+                .contains("禁止建议把 ROWNUM 放到内层 ORDER BY 之前")
                 .contains("不得直接包含完整改写 SQL 或 DDL");
     }
 
