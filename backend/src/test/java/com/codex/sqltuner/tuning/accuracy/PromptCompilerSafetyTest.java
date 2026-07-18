@@ -29,6 +29,7 @@ class PromptCompilerSafetyTest {
                 .contains("截图显示、待文本 EXPLAIN 确认")
                 .contains("不得使用 MySQL 专有 FILESORT")
                 .contains("禁止建议把 ROWNUM 放到内层 ORDER BY 之前")
+                .contains("不要仅因 SELECT 未投影右表列就建议删除 LEFT JOIN")
                 .contains("不得直接包含完整改写 SQL 或 DDL");
     }
 

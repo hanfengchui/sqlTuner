@@ -24,6 +24,7 @@ public class PromptCompiler {
         if (dialect == SqlDialect.OB_ORACLE) {
             builder.append("方言术语必须准确：描述排序时使用 SORT/PHY_SORT，不得使用 MySQL 专有 FILESORT 作为执行计划术语。\n");
             builder.append("对于 SELECT * FROM (... ORDER BY ...) WHERE ROWNUM <= ? 的 Top-N 形态，先判断现有 ROWNUM 位置是否已保持排序语义；禁止建议把 ROWNUM 放到内层 ORDER BY 之前。若截图显示内表已按索引单行探测，不要仅因 JOIN 存在就推荐为该内表新建重复索引。\n");
+            builder.append("不要仅因 SELECT 未投影右表列就建议删除 LEFT JOIN；关联是否可移除取决于业务语义、关联基数和空值行为。未提供明确业务约束时，只能把它列为待确认事项，不能作为优化建议或主动作。\n");
         }
         builder.append("证据门禁: 每个建议必须引用 evidenceCatalog 中真实 evidenceRefs。证据不足时 outcome=NEEDS_INPUT，不得输出确定性 DDL。\n");
         builder.append("输出必须是严格 JSON，字段完整: outcome, summary, analysisNarrative, contextAssessment, evidenceCatalog, diagnoses, rewriteCandidates, indexCandidates, validationPlan, missingInformation, safetyWarnings, review。\n");
