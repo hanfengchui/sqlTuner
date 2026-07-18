@@ -173,6 +173,10 @@ function appendRecommendations(blocks: AdviceBlock[], advice: ReturnType<typeof 
   if (advice.outcome !== "ADVICE") {
     return;
   }
+  if (advice.index?.ddl?.trim()) {
+    blocks.push({ id: "index", type: "index", candidate: advice.index });
+    return;
+  }
   if (advice.rewrite && (advice.rewrite.sql || advice.rewrite.rewrittenSql)) {
     blocks.push({ id: "rewrite", type: "rewrite", candidate: advice.rewrite });
     return;

@@ -25,6 +25,7 @@ class PromptCompilerSafetyTest {
                 .contains("结论先行")
                 .contains("2 至 4 个紧凑阅读块")
                 .contains("普通 Markdown 风格")
+                .contains("一个主可执行候选")
                 .contains("截图显示、待文本 EXPLAIN 确认")
                 .contains("不得使用 MySQL 专有 FILESORT")
                 .contains("禁止建议把 ROWNUM 放到内层 ORDER BY 之前")

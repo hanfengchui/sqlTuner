@@ -139,9 +139,9 @@ test("workspace renders concise validated advice inline in the conversation", as
   await expect(page.getByText("先确认当前访问路径和索引覆盖情况；在没有计划证据前，不应直接把排序问题归因于索引缺失。")).toBeVisible();
   await expect(page.getByText("为什么先验证计划")).toBeVisible();
   await expect(page.getByText("验证标准")).toBeVisible();
-  await expect(page.getByText("建议改写")).toBeVisible();
-  await expect(page.getByText("索引候选")).toHaveCount(0);
-  await expect(page.getByText(/create index idx_orders_status_created/)).toHaveCount(0);
+  await expect(page.getByText("建议改写")).toHaveCount(0);
+  await expect(page.getByText("索引候选")).toBeVisible();
+  await expect(page.getByText(/create index idx_orders_status_created/)).toBeVisible();
   await expect(page.getByText("重点问题")).toHaveCount(0);
   await expect(page.getByText("SELECT * 扩大回表成本")).toHaveCount(0);
   await expect(page.getByRole("tab")).toHaveCount(0);

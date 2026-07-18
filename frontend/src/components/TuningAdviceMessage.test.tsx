@@ -19,7 +19,7 @@ const baseTask: SqlTuningTask = {
 };
 
 describe("TuningAdviceMessage", () => {
-  it("renders one concise primary recommendation without report tabs or evidence identifiers", () => {
+  it("prefers one evidence-gated index DDL over a secondary rewrite", () => {
     render(
       <TuningAdviceMessage
         progressive={false}
@@ -68,9 +68,9 @@ describe("TuningAdviceMessage", () => {
     expect(screen.getByText("SELECT * 扩大回表成本")).toBeInTheDocument();
     expect(screen.getByText("第三个问题")).toBeInTheDocument();
     expect(screen.queryByText("不应默认展示")).not.toBeInTheDocument();
-    expect(screen.getByText("建议改写")).toBeInTheDocument();
-    expect(screen.queryByText("索引候选")).not.toBeInTheDocument();
-    expect(screen.queryByText(/create index idx_orders_status_created/)).not.toBeInTheDocument();
+    expect(screen.queryByText("建议改写")).not.toBeInTheDocument();
+    expect(screen.getByText("索引候选")).toBeInTheDocument();
+    expect(screen.getByText(/create index idx_orders_status_created/)).toBeInTheDocument();
     expect(screen.getByText("验证")).toBeInTheDocument();
     expect(screen.queryByText("E_EXPLAIN")).not.toBeInTheDocument();
     expect(screen.queryByRole("tab")).not.toBeInTheDocument();
