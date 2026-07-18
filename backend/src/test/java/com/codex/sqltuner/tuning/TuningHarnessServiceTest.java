@@ -234,6 +234,23 @@ class TuningHarnessServiceTest {
     }
 
     @Test
+    void estimatedRowsMisreportedAsScanCountGetsExactlyOneRepairCall() throws Exception {
+        RecordingLlmClient client = new RecordingLlmClient(
+                contentWithNarrativeBody("当前 SQL 执行全表扫描，扫描行数达 100000 行，资源消耗较大。"),
+                mockContent());
+        TuningHarnessService service = service(client);
+        CreateTuningTaskRequest request = sqlOnlyRequest();
+        request.setExplainText("TABLE FULL SCAN orders; estimated rows=100000");
+
+        SqlTuningTask task = service.createTask(1L, request);
+        service.run(task);
+
+        assertThat(client.callCount()).isEqualTo(2);
+        assertThat(task.getStatus()).isEqualTo(TaskStatus.DONE);
+        assertThat(task.getArtifacts()).extracting("nodeName").contains("resultValidateFailed", "llmRepair");
+    }
+
+    @Test
     void duplicateIndexCandidateGetsExactlyOneRepairCall() throws Exception {
         String sql = "select id, tenant_id from orders where tenant_id = 1 order by created_at desc limit 10";
         RecordingLlmClient client = new RecordingLlmClient(duplicateIndexContent(), mockContent());
