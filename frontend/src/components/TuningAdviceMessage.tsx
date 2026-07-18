@@ -84,7 +84,7 @@ function safeStreamingDraft(value?: string) {
   if (normalized.startsWith("{") || /"(?:indexCandidates|rewriteCandidates|rawModelOutput)"\s*:/.test(normalized)) {
     return "";
   }
-  if (/(?:\bcreate\s+(?:or\s+replace\s+)?(?:(?:unique|bitmap|clustered|nonclustered|global|local|temporary)\s+)*(?:index|table|view|materialized\s+view|sequence|trigger|function|procedure|package|type)\b|\b(?:alter|drop|truncate|rename)\s+(?:table|index|view|sequence|trigger|function|procedure|package|type)\b|\b(?:insert\s+into|delete\s+from|merge\s+into)\b|\bupdate\s+[\w.$"`]+\s+set\b|\bselect\b[\s\S]{0,4096}?\bfrom\b|```\s*sql\b|\bsql\s*:)/i.test(normalized)) {
+  if (/(?:```\s*sql\b|\bsql\s*:|\b(?:select|with|insert|replace|update|delete|merge|create|alter|drop|truncate|rename|grant|revoke|call|exec|execute|begin|declare|explain|analyze|lock|set|commit|rollback)\b)/i.test(normalized)) {
     return "";
   }
   return normalized

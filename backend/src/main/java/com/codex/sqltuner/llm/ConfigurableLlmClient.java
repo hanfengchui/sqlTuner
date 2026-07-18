@@ -272,7 +272,10 @@ public class ConfigurableLlmClient implements LlmClient {
                             JsonNode chunk = objectMapper.readTree(payload);
                             String errorCode = extractStreamErrorCode(chunk);
                             if (errorCode != null) {
-                                throw new LlmCallException("模型流式返回错误, code=" + errorCode, null);
+                                throw new LlmCallException(
+                                        "模型流式返回错误, code=" + errorCode,
+                                        null,
+                                        isRetryableStreamErrorCode(errorCode));
                             }
                             String delta = extractStreamContent(chunk);
                             String reasoning = extractStreamReasoning(chunk);
@@ -399,6 +402,21 @@ public class ConfigurableLlmClient implements LlmClient {
         }
         String safe = value.trim().replaceAll("[^A-Za-z0-9_.-]", "_");
         return abbreviate(safe, 80);
+    }
+
+    private boolean isRetryableStreamErrorCode(String code) {
+        String normalized = code == null ? "" : code.toLowerCase(Locale.ROOT);
+        return normalized.contains("429")
+                || normalized.contains("502")
+                || normalized.contains("503")
+                || normalized.contains("504")
+                || normalized.contains("rate_limit")
+                || normalized.contains("throttl")
+                || normalized.contains("server_error")
+                || normalized.contains("internal_error")
+                || normalized.contains("overload")
+                || normalized.contains("service_unavailable")
+                || normalized.contains("temporarily_unavailable");
     }
 
     private String summarizeHttpError(RestClientResponseException error) {

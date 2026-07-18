@@ -45,6 +45,9 @@ export function useTaskUpdates(taskId: number | undefined, options: UseTaskUpdat
     currentVersionRef.current = options.initialTask?.id === taskId ? options.initialTask.version ?? -1 : -1;
     let currentStreamSequence = -1;
     let currentStreamAttempt = options.initialTask?.id === taskId ? options.initialTask.attemptCount ?? -1 : -1;
+    let taskAllowsModelStream = options.initialTask?.id === taskId
+      ? !["QUEUED", "RECEIVED", "DONE", "FAILED"].includes(options.initialTask.status)
+      : false;
     setModelStream(undefined);
 
     function clearPoll() {
@@ -65,8 +68,14 @@ export function useTaskUpdates(taskId: number | undefined, options: UseTaskUpdat
       currentVersionRef.current = incomingVersion;
       setTask(next);
       setError("");
+      const incomingAttempt = next.attemptCount ?? currentStreamAttempt;
+      if (incomingAttempt > currentStreamAttempt) {
+        currentStreamAttempt = incomingAttempt;
+        currentStreamSequence = -1;
+        setModelStream(undefined);
+      }
+      taskAllowsModelStream = !["QUEUED", "RECEIVED", "DONE", "FAILED"].includes(next.status);
       if (next.status === "QUEUED" || next.status === "RECEIVED") {
-        currentStreamAttempt = next.attemptCount ?? currentStreamAttempt;
         currentStreamSequence = -1;
         setModelStream(undefined);
       }
@@ -106,6 +115,9 @@ export function useTaskUpdates(taskId: number | undefined, options: UseTaskUpdat
         currentStreamSequence = -1;
       }
       if (update.sequence < currentStreamSequence) {
+        return;
+      }
+      if (!taskAllowsModelStream) {
         return;
       }
       currentStreamSequence = update.sequence;

@@ -5,6 +5,7 @@ import com.codex.sqltuner.conversation.Conversation;
 import com.codex.sqltuner.conversation.ConversationRepository;
 import com.codex.sqltuner.storage.JdbcJsonSupport;
 import com.codex.sqltuner.storage.JdbcTestSupport;
+import com.codex.sqltuner.llm.LlmCallException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import org.junit.jupiter.api.Test;
@@ -152,6 +153,32 @@ class TuningQueueWorkerConcurrencyTest {
         }
     }
 
+    @Test
+    void typedTransientModelFailureReturnsTaskToQueue() throws Exception {
+        JdbcTemplate jdbcTemplate = JdbcTestSupport.jdbcTemplate();
+        QueueProperties queueProperties = new QueueProperties();
+        queueProperties.setWorkerCount(1);
+        queueProperties.setMaxRunning(1);
+        TuningTaskRepository repository = repository(jdbcTemplate, queueProperties);
+        SqlTuningTask task = createQueuedTasks(jdbcTemplate, repository, 1).get(0);
+        TuningHarnessService harnessService = mock(TuningHarnessService.class);
+        doThrow(new LlmCallException("模型流式返回错误, code=server_error", null, true))
+                .when(harnessService).run(any(SqlTuningTask.class));
+
+        TuningQueueWorker worker = new TuningQueueWorker(repository, harnessService, new TaskEventBroker(), queueProperties);
+        try {
+            worker.dispatch();
+            SqlTuningTask queued = waitForStatus(repository, task.getId(), TaskStatus.QUEUED);
+
+            assertThat(queued.getStatus()).isEqualTo(TaskStatus.QUEUED);
+            assertThat(queued.getAttemptCount()).isEqualTo(1);
+            assertThat(queued.getLastErrorCode()).isEqualTo("TASK_RETRYABLE");
+            assertThat(queued.getNextAttemptAt()).isNotNull();
+        } finally {
+            worker.shutdown();
+        }
+    }
+
     private boolean waitUntilWorkersReleasedLeases(JdbcTemplate jdbcTemplate) throws InterruptedException {
         long deadline = System.currentTimeMillis() + 5000L;
         while (System.currentTimeMillis() < deadline) {
@@ -171,6 +198,20 @@ class TuningQueueWorkerConcurrencyTest {
         while (System.currentTimeMillis() < deadline) {
             SqlTuningTask task = repository.get(taskId);
             if (task.getStatus() == TaskStatus.DONE || task.getStatus() == TaskStatus.FAILED) {
+                return task;
+            }
+            Thread.sleep(25L);
+        }
+        return repository.get(taskId);
+    }
+
+    private SqlTuningTask waitForStatus(TuningTaskRepository repository,
+                                        Long taskId,
+                                        TaskStatus expectedStatus) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 5000L;
+        while (System.currentTimeMillis() < deadline) {
+            SqlTuningTask task = repository.get(taskId);
+            if (task.getStatus() == expectedStatus && task.getAttemptCount() > 0) {
                 return task;
             }
             Thread.sleep(25L);

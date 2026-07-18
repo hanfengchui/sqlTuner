@@ -15,6 +15,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 class ConfigurableLlmClientStreamTest {
     private HttpServer server;
@@ -111,6 +112,23 @@ class ConfigurableLlmClientStreamTest {
         })).isInstanceOf(LlmCallException.class)
                 .hasMessageContaining("rate_limit_exceeded")
                 .hasMessageNotContaining("sensitive prompt text");
+    }
+
+    @Test
+    void marksTransientStreamErrorEnvelopeAsRetryable() throws Exception {
+        startServer(exchange -> write(exchange, 200, "text/event-stream",
+                "data: {\"error\":{\"code\":\"server_error\",\"message\":\"temporary\"}}\n\n"));
+
+        Throwable thrown = catchThrowable(() -> client().analyze(
+                new LlmRequest("system", "user", false),
+                new LlmStreamListener() {
+                    @Override
+                    public void onContent(String accumulatedContent, int receivedChars) {
+                    }
+                }));
+
+        assertThat(thrown).isInstanceOf(LlmCallException.class);
+        assertThat(((LlmCallException) thrown).isRetryable()).isTrue();
     }
 
     @Test

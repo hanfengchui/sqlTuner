@@ -333,10 +333,23 @@ describe("TuningAdviceMessage", () => {
       <TaskProgressMessage
         task={{ ...baseTask, status: "LLM_ANALYZING", statusMessage: "正在调用模型分析" }}
         stream={{
+          phase: "ANSWER",
+          draftText: "CREATE FULLTEXT INDEX idx_fulltext_unsafe ON orders(note);",
+          receivedChars: 320,
+          sequence: 5
+        }}
+      />
+    );
+    expect(screen.queryByText(/idx_fulltext_unsafe/)).not.toBeInTheDocument();
+
+    rerender(
+      <TaskProgressMessage
+        task={{ ...baseTask, status: "LLM_ANALYZING", statusMessage: "正在调用模型分析" }}
+        stream={{
           phase: "THINKING",
           draftText: "{\"indexCandidates\":[]}",
           receivedChars: 128,
-          sequence: 5
+          sequence: 6
         }}
       />
     );

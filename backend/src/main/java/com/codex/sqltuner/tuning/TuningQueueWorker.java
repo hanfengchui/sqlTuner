@@ -138,6 +138,9 @@ public class TuningQueueWorker {
             }
             // 只信任 LLM 调用边界生成的错误消息；不能扫描解析器/用户数据中的 network 等普通文本。
             if (current instanceof com.codex.sqltuner.llm.LlmCallException) {
+                if (((com.codex.sqltuner.llm.LlmCallException) current).isRetryable()) {
+                    return true;
+                }
                 String message = current.getMessage() == null ? "" : current.getMessage().toLowerCase(java.util.Locale.ROOT);
                 if (message.contains("429") || message.contains("502") || message.contains("503")
                         || message.contains("504") || message.contains("timeout") || message.contains("timed out")
