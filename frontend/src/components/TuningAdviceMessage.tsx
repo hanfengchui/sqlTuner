@@ -1,6 +1,6 @@
-import { AlertTriangle, CheckCircle2, ClipboardCheck, Copy, FileSearch, Loader2, Sparkles, Wrench } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ClipboardCheck, Copy, FileSearch, Lightbulb, ListChecks, Loader2, ShieldAlert, Sparkles, Wrench } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { Diagnosis, IndexCandidate, RewriteCandidate, SqlTuningTask, ValidationStep } from "../types/api";
+import type { AnalysisNarrativeSection, Diagnosis, IndexCandidate, RewriteCandidate, SqlTuningTask, ValidationStep } from "../types/api";
 
 interface TuningAdviceMessageProps {
   task?: SqlTuningTask;
@@ -11,8 +11,10 @@ interface TuningAdviceMessageProps {
 export function TuningAdviceMessage({ task, progressive = true, showDetailLink = true }: TuningAdviceMessageProps) {
   const advice = useMemo(() => normalizeAdvice(task), [task]);
   const sections = useMemo(() => {
-    const next: Array<"diagnoses" | "rewrite" | "index" | "next"> = [];
-    if (advice.diagnoses.length > 0) {
+    const next: string[] = [];
+    if (advice.narrative?.sections.length) {
+      advice.narrative.sections.forEach((_, index) => next.push(`narrative-${index}`));
+    } else if (advice.diagnoses.length > 0) {
       next.push("diagnoses");
     }
     if (advice.rewrite) {
@@ -21,11 +23,11 @@ export function TuningAdviceMessage({ task, progressive = true, showDetailLink =
     if (advice.index) {
       next.push("index");
     }
-    if (advice.nextStep || advice.warning) {
+    if ((!advice.narrative || !hasNarrativeKind(advice.narrative.sections, "VALIDATION")) && (advice.nextStep || advice.warning)) {
       next.push("next");
     }
     return next;
-  }, [advice.diagnoses.length, advice.index, advice.nextStep, advice.rewrite, advice.warning]);
+  }, [advice.diagnoses.length, advice.index, advice.narrative, advice.nextStep, advice.rewrite, advice.warning]);
   const [visibleSections, setVisibleSections] = useState(progressive ? 0 : sections.length);
 
   useEffect(() => {
@@ -60,9 +62,13 @@ export function TuningAdviceMessage({ task, progressive = true, showDetailLink =
         </div>
       </header>
 
-      <p className="advice-summary">{advice.summary}</p>
+      <p className="advice-summary">{advice.narrative?.conclusion || advice.summary}</p>
 
-      {isVisible(sections, "diagnoses", visibleSections) && (
+      {advice.narrative?.sections.map((section, index) => isVisible(sections, `narrative-${index}`, visibleSections) && (
+        <NarrativeSectionView key={`${section.kind}-${section.title}-${index}`} section={section} />
+      ))}
+
+      {!advice.narrative && isVisible(sections, "diagnoses", visibleSections) && (
         <section className="advice-section advice-diagnoses">
           <h3><AlertTriangle size={16} />重点问题</h3>
           <ol>
@@ -145,6 +151,16 @@ function SqlSnippet({ value }: { value: string }) {
   );
 }
 
+function NarrativeSectionView({ section }: { section: AnalysisNarrativeSection }) {
+  const icon = narrativeIcon(section.kind);
+  return (
+    <section className={`advice-section advice-narrative advice-narrative-${section.kind.toLowerCase()}`}>
+      <h3>{icon}{section.title}</h3>
+      <p>{section.body}</p>
+    </section>
+  );
+}
+
 function normalizeAdvice(task?: SqlTuningTask) {
   const result = task?.result;
   const diagnoses: Diagnosis[] = result?.diagnoses || result?.findings?.map((finding) => ({
@@ -169,6 +185,7 @@ function normalizeAdvice(task?: SqlTuningTask) {
 
   return {
     outcome,
+    narrative: result?.analysisNarrative,
     summary: result?.summary || (task?.status === "FAILED" ? "任务失败，请检查输入或稍后重试。" : "本轮分析已完成。"),
     diagnoses,
     rewrite: rewrites[0],
@@ -178,6 +195,25 @@ function normalizeAdvice(task?: SqlTuningTask) {
       : validation,
     warning: (result?.safetyWarnings || result?.riskWarnings || [])[0]
   };
+}
+
+function hasNarrativeKind(sections: AnalysisNarrativeSection[], kind: string) {
+  return sections.some((section) => section.kind.toUpperCase() === kind);
+}
+
+function narrativeIcon(kind: string) {
+  switch (kind.toUpperCase()) {
+    case "EVIDENCE":
+      return <FileSearch size={16} />;
+    case "CAUTION":
+      return <ShieldAlert size={16} />;
+    case "ACTION":
+      return <Lightbulb size={16} />;
+    case "VALIDATION":
+      return <ListChecks size={16} />;
+    default:
+      return <Sparkles size={16} />;
+  }
 }
 
 function firstValidation(plan?: Array<ValidationStep | string>, legacy?: string[]) {

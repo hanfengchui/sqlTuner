@@ -2,8 +2,10 @@ package com.codex.sqltuner.tuning.accuracy;
 
 import com.codex.sqltuner.rule.SqlDialect;
 import com.codex.sqltuner.tuning.TuningResult;
+import com.codex.sqltuner.tuning.result.AnalysisNarrative;
 import com.codex.sqltuner.tuning.result.ContextAssessment;
 import com.codex.sqltuner.tuning.result.EvidenceItem;
+import com.codex.sqltuner.tuning.result.NarrativeSection;
 import com.codex.sqltuner.tuning.result.RewriteCandidate;
 import com.codex.sqltuner.tuning.result.ValidationStep;
 import org.junit.jupiter.api.Test;
@@ -76,6 +78,20 @@ class StrictResultValidatorSemanticTest {
         assertThat(outcome.isValid()).isTrue();
     }
 
+    @Test
+    void rejectsExecutableSqlSmuggledIntoNarrative() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.getAnalysisNarrative().getSections().get(0)
+                .setBody("请直接执行 SELECT id FROM orders WHERE tenant_id = 1。");
+
+        ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isFalse();
+        assertThat(outcome.summary()).contains("analysisNarrative.sections 不得直接包含完整 SQL");
+    }
+
     private ValidationOutcome validateMysql(String originalSql, String rewriteSql) {
         return validate(originalSql, rewriteSql, SqlDialect.OB_MYSQL);
     }
@@ -92,6 +108,7 @@ class StrictResultValidatorSemanticTest {
         result.setOutcome("ADVICE");
         result.setContextAssessment(new ContextAssessment());
         result.setEvidenceCatalog(Collections.singletonList(evidence()));
+        result.setAnalysisNarrative(narrative());
         result.setRewriteCandidates(new ArrayList<RewriteCandidate>(Collections.singletonList(rewrite(rewriteSql))));
         result.setValidationPlan(new ArrayList<ValidationStep>(Collections.singletonList(validationStep())));
         return result;
@@ -120,6 +137,19 @@ class StrictResultValidatorSemanticTest {
         candidate.setSql(sql);
         candidate.setEvidenceRefs(Collections.singletonList("E1"));
         return candidate;
+    }
+
+    private AnalysisNarrative narrative() {
+        NarrativeSection section = new NarrativeSection();
+        section.setKind("EVIDENCE");
+        section.setTitle("可验证依据");
+        section.setBody("改写候选必须保持原 SQL 的业务语义。");
+        section.setEvidenceRefs(Collections.singletonList("E1"));
+
+        AnalysisNarrative narrative = new AnalysisNarrative();
+        narrative.setConclusion("该候选仅用于验证语义守卫是否允许等价改写。");
+        narrative.setSections(new ArrayList<NarrativeSection>(Collections.singletonList(section)));
+        return narrative;
     }
 
     private ValidationStep validationStep() {

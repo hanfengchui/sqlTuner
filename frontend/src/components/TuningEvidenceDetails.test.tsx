@@ -20,6 +20,15 @@ const task: SqlTuningTask = {
   result: {
     outcome: "ADVICE",
     summary: "可审阅建议",
+    analysisNarrative: {
+      conclusion: "先确认计划和索引，再决定是否创建候选索引。",
+      sections: [{
+        kind: "EVIDENCE",
+        title: "计划事实",
+        body: "当前计划显示可继续验证的访问路径。",
+        evidenceRefs: ["E_EXPLAIN"]
+      }]
+    },
     contextAssessment: {
       completeness: "FULL_EVIDENCE",
       maxConfidence: "HIGH",
@@ -51,6 +60,9 @@ describe("TuningEvidenceDetails", () => {
     render(<TuningEvidenceDetails task={task} />);
 
     expect(screen.getByText("审计详情")).toBeInTheDocument();
+    expect(screen.getByText("工程师结论")).toBeInTheDocument();
+    expect(screen.getByText("先确认计划和索引，再决定是否创建候选索引。")).toBeInTheDocument();
+    expect(screen.getByText("计划事实")).toBeInTheDocument();
     await userEvent.click(screen.getByText("证据目录 (1)"));
     expect(screen.getByText("E_EXPLAIN · USER_EXPLAIN")).toBeInTheDocument();
     await userEvent.click(screen.getByText("诊断 (1)"));

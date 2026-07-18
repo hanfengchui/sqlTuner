@@ -151,8 +151,21 @@ export interface ValidationStep {
   evidenceRefs?: string[];
 }
 
+export interface AnalysisNarrativeSection {
+  kind: "CONCLUSION" | "EVIDENCE" | "CAUTION" | "ACTION" | "VALIDATION" | string;
+  title: string;
+  body: string;
+  evidenceRefs?: string[];
+}
+
+export interface AnalysisNarrative {
+  conclusion: string;
+  sections: AnalysisNarrativeSection[];
+}
+
 export interface TuningResult {
   outcome?: AdviceOutcome;
+  analysisNarrative?: AnalysisNarrative;
   contextAssessment?: ContextAssessment;
   evidenceCatalog?: EvidenceItem[];
   diagnoses?: Diagnosis[];

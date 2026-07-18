@@ -1,6 +1,6 @@
 import { ClipboardList, FileSearch, ListChecks, ShieldAlert } from "lucide-react";
 import type { ReactNode } from "react";
-import type { Diagnosis, IndexCandidate, RewriteCandidate, SqlTuningTask, ValidationStep } from "../types/api";
+import type { AnalysisNarrativeSection, Diagnosis, IndexCandidate, RewriteCandidate, SqlTuningTask, ValidationStep } from "../types/api";
 
 export function TuningEvidenceDetails({ task }: { task?: SqlTuningTask }) {
   const result = task?.result;
@@ -36,6 +36,17 @@ export function TuningEvidenceDetails({ task }: { task?: SqlTuningTask }) {
         </div>
         <ClipboardList size={20} />
       </header>
+
+      {result.analysisNarrative && (
+        <DetailSection title="工程师结论" open>
+          <p className="audit-narrative-conclusion">{result.analysisNarrative.conclusion}</p>
+          <div className="evidence-record-list">
+            {result.analysisNarrative.sections.map((section, index) => (
+              <NarrativeDetail key={`${section.kind}-${section.title}-${index}`} section={section} />
+            ))}
+          </div>
+        </DetailSection>
+      )}
 
       <DetailSection title="上下文门禁" open>
         <dl className="evidence-facts">
@@ -129,6 +140,16 @@ function DiagnosisDetail({ diagnosis }: { diagnosis: Diagnosis }) {
       {diagnosis.precondition && <small>前置条件：{diagnosis.precondition}</small>}
       {diagnosis.preconditions?.length ? <small>前置条件：{diagnosis.preconditions.join("；")}</small> : null}
       <EvidenceRefs refs={diagnosis.evidenceRefs} />
+    </article>
+  );
+}
+
+function NarrativeDetail({ section }: { section: AnalysisNarrativeSection }) {
+  return (
+    <article>
+      <strong>{section.title}</strong>
+      <p>{section.body}</p>
+      <EvidenceRefs refs={section.evidenceRefs} />
     </article>
   );
 }

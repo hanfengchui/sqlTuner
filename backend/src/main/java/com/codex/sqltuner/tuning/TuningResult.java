@@ -1,6 +1,7 @@
 package com.codex.sqltuner.tuning;
 
 import com.codex.sqltuner.tuning.result.ContextAssessment;
+import com.codex.sqltuner.tuning.result.AnalysisNarrative;
 import com.codex.sqltuner.tuning.result.Diagnosis;
 import com.codex.sqltuner.tuning.result.EvidenceItem;
 import com.codex.sqltuner.tuning.result.IndexCandidate;
@@ -14,6 +15,7 @@ import java.util.List;
 public class TuningResult {
     private String outcome;
     private String summary;
+    private AnalysisNarrative analysisNarrative;
     private ContextAssessment contextAssessment;
     private List<EvidenceItem> evidenceCatalog = new ArrayList<EvidenceItem>();
     private List<Diagnosis> diagnoses = new ArrayList<Diagnosis>();
@@ -46,6 +48,14 @@ public class TuningResult {
 
     public void setSummary(String summary) {
         this.summary = summary;
+    }
+
+    public AnalysisNarrative getAnalysisNarrative() {
+        return analysisNarrative;
+    }
+
+    public void setAnalysisNarrative(AnalysisNarrative analysisNarrative) {
+        this.analysisNarrative = analysisNarrative;
     }
 
     public ContextAssessment getContextAssessment() {

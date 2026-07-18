@@ -5,6 +5,8 @@ import com.codex.sqltuner.tuning.TuningResult;
 import com.codex.sqltuner.tuning.result.Diagnosis;
 import com.codex.sqltuner.tuning.result.EvidenceItem;
 import com.codex.sqltuner.tuning.result.IndexCandidate;
+import com.codex.sqltuner.tuning.result.AnalysisNarrative;
+import com.codex.sqltuner.tuning.result.NarrativeSection;
 import com.codex.sqltuner.tuning.result.RewriteCandidate;
 import com.codex.sqltuner.tuning.result.ValidationStep;
 import org.springframework.stereotype.Component;
@@ -38,6 +40,7 @@ public class StrictResultValidator {
             outcome.reject("缺少 evidenceCatalog");
         }
         Set<String> evidenceIds = evidenceIds(result);
+        validateNarrative(result.getAnalysisNarrative(), evidenceIds, outcome);
         validateDiagnoses(result, evidenceIds, outcome);
         validateRewriteCandidates(result, context, originalProfile, dialect, evidenceIds, outcome);
         validateIndexCandidates(result, context, evidenceIds, outcome);
@@ -60,6 +63,62 @@ public class StrictResultValidator {
             outcome.reject("NEEDS_INPUT 必须给出 missingInformation");
         }
         return outcome;
+    }
+
+    private void validateNarrative(AnalysisNarrative narrative,
+                                   Set<String> evidenceIds,
+                                   ValidationOutcome outcome) {
+        if (narrative == null || !hasText(narrative.getConclusion())) {
+            outcome.reject("缺少 analysisNarrative.conclusion");
+            return;
+        }
+        if (narrative.getConclusion().length() > 1200) {
+            outcome.reject("analysisNarrative.conclusion 超过长度限制");
+        }
+        validateNarrativeText("analysisNarrative.conclusion", narrative.getConclusion(), outcome);
+        if (narrative.getSections().isEmpty() || narrative.getSections().size() > 5) {
+            outcome.reject("analysisNarrative.sections 必须包含 1 至 5 个段落");
+        }
+        for (NarrativeSection section : narrative.getSections()) {
+            if (!hasText(section.getKind()) || !hasText(section.getTitle()) || !hasText(section.getBody())) {
+                outcome.reject("analysisNarrative.sections 缺少 kind/title/body");
+                continue;
+            }
+            if (!isNarrativeKind(section.getKind())) {
+                outcome.reject("analysisNarrative.sections 包含不支持的 kind: " + section.getKind());
+            }
+            if (section.getBody().length() > 1800) {
+                outcome.reject("analysisNarrative.sections.body 超过长度限制");
+            }
+            if (section.getTitle().length() > 180) {
+                outcome.reject("analysisNarrative.sections.title 超过长度限制");
+            }
+            validateNarrativeText("analysisNarrative.sections", section.getTitle() + "\n" + section.getBody(), outcome);
+            validateRefs("analysisNarrative.sections", section.getEvidenceRefs(), evidenceIds, outcome);
+        }
+    }
+
+    private void validateNarrativeText(String field, String value, ValidationOutcome outcome) {
+        if (containsExecutableDdl(value)) {
+            outcome.reject(field + " 不得直接包含 DDL");
+        }
+        if (containsExecutableSql(value)) {
+            outcome.reject(field + " 不得直接包含完整 SQL");
+        }
+    }
+
+    private boolean isNarrativeKind(String kind) {
+        String value = kind.trim().toUpperCase(Locale.ROOT);
+        return "CONCLUSION".equals(value) || "EVIDENCE".equals(value) || "CAUTION".equals(value)
+                || "ACTION".equals(value) || "VALIDATION".equals(value);
+    }
+
+    private boolean containsExecutableDdl(String value) {
+        return value.toLowerCase(Locale.ROOT).matches("(?s).*\\b(create\\s+(unique\\s+)?index|alter\\s+table|drop\\s+index)\\b.*");
+    }
+
+    private boolean containsExecutableSql(String value) {
+        return value.toLowerCase(Locale.ROOT).matches("(?s).*\\b(select\\s+.+?\\s+from|update\\s+.+?\\s+set|insert\\s+into|delete\\s+from)\\b.*");
     }
 
     private void validateDiagnoses(TuningResult result, Set<String> evidenceIds, ValidationOutcome outcome) {

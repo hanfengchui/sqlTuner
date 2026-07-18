@@ -686,6 +686,17 @@ public class TuningHarnessService {
         }
         requireText(root, "outcome", "root");
         requireText(root, "summary", "root");
+        JsonNode narrative = requireObject(root, "analysisNarrative", "root");
+        requireText(narrative, "conclusion", "analysisNarrative");
+        JsonNode narrativeSections = requireArray(narrative, "sections", "analysisNarrative");
+        for (int i = 0; i < narrativeSections.size(); i++) {
+            JsonNode section = requireArrayObject(narrativeSections, i, "analysisNarrative.sections");
+            String path = "analysisNarrative.sections[" + i + "]";
+            requireText(section, "kind", path);
+            requireText(section, "title", path);
+            requireText(section, "body", path);
+            requireStringArray(section, "evidenceRefs", path);
+        }
         JsonNode assessment = requireObject(root, "contextAssessment", "root");
         requireText(assessment, "completeness", "contextAssessment");
         requireText(assessment, "maxConfidence", "contextAssessment");

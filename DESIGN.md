@@ -64,7 +64,7 @@
 - Loading: status is an assistant message with the current task stage; it does not reveal unvalidated tokens.
 - Empty: the workspace centers the compact composer and asks for a SQL or full diagnostic-report text block, without marketing copy.
 - Error: inline assistant message states that the task failed and keeps the submitted text available in the conversation.
-- Success: once strict validation is complete, the assistant answer reveals its compact sections in order: conclusion, top diagnoses, one rewrite/index direction, then one next step only if needed.
+- Success: once strict validation is complete, the assistant answer reveals a direct conclusion followed by a short evidence-led narrative. It may then show one validated rewrite or index direction, with a validation step only when that changes the engineer's next action. Legacy diagnosis lists remain a fallback for historical tasks only.
 - Disabled: disabled controls retain accessible labels and the send action is disabled only while the composer is empty or submission is in progress.
 - Offline/slow network, if applicable: the in-progress message remains truthful; SSE reconnects and task GET remains the recovery source.
 

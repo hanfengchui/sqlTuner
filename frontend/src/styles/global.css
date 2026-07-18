@@ -543,6 +543,12 @@ input:focus, select:focus, textarea:focus, .search-input:focus-within { border-c
 .advice-section small { display: block; margin-top: 7px; color: var(--muted); line-height: 1.5; }
 .advice-next { border-left-color: var(--accent); }
 .advice-next.needs-input { border-left-color: var(--amber); }
+.advice-narrative p { white-space: pre-line; }
+.advice-narrative-evidence { border-left-color: var(--accent); }
+.advice-narrative-caution { border-left-color: var(--amber); }
+.advice-narrative-action { border-left-color: var(--green); }
+.advice-narrative-validation { border-left-color: var(--accent); }
+.audit-narrative-conclusion { margin: 0 0 10px; color: var(--text); line-height: 1.65; white-space: pre-line; }
 .advice-sql-snippet {
   position: relative;
   margin-top: 8px;
