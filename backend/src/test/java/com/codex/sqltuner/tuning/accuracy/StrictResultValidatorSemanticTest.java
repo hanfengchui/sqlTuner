@@ -107,6 +107,19 @@ class StrictResultValidatorSemanticTest {
         assertThat(outcome.summary()).contains("1 至 3 个段落");
     }
 
+    @Test
+    void rejectsMysqlFilesortTermInOracleNarrative() {
+        String sql = "SELECT * FROM (SELECT o.id FROM orders o WHERE o.tenant_id = 1 ORDER BY o.created_at DESC) WHERE ROWNUM <= 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_ORACLE);
+        TuningResult result = validResult(sql);
+        result.getAnalysisNarrative().getSections().get(0).setBody("请确认是否发生 filesort。");
+
+        ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_ORACLE);
+
+        assertThat(outcome.isValid()).isFalse();
+        assertThat(outcome.summary()).contains("FILESORT");
+    }
+
     private ValidationOutcome validateMysql(String originalSql, String rewriteSql) {
         return validate(originalSql, rewriteSql, SqlDialect.OB_MYSQL);
     }

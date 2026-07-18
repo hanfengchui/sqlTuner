@@ -40,7 +40,7 @@ public class StrictResultValidator {
             outcome.reject("缺少 evidenceCatalog");
         }
         Set<String> evidenceIds = evidenceIds(result);
-        validateNarrative(result.getAnalysisNarrative(), evidenceIds, outcome);
+        validateNarrative(result.getAnalysisNarrative(), evidenceIds, dialect, outcome);
         validateDiagnoses(result, evidenceIds, outcome);
         validateRewriteCandidates(result, context, originalProfile, dialect, evidenceIds, outcome);
         validateIndexCandidates(result, context, evidenceIds, outcome);
@@ -67,6 +67,7 @@ public class StrictResultValidator {
 
     private void validateNarrative(AnalysisNarrative narrative,
                                    Set<String> evidenceIds,
+                                   SqlDialect dialect,
                                    ValidationOutcome outcome) {
         if (narrative == null || !hasText(narrative.getConclusion())) {
             outcome.reject("缺少 analysisNarrative.conclusion");
@@ -75,7 +76,7 @@ public class StrictResultValidator {
         if (narrative.getConclusion().length() > 600) {
             outcome.reject("analysisNarrative.conclusion 超过长度限制");
         }
-        validateNarrativeText("analysisNarrative.conclusion", narrative.getConclusion(), outcome);
+        validateNarrativeText("analysisNarrative.conclusion", narrative.getConclusion(), dialect, outcome);
         if (narrative.getSections().isEmpty() || narrative.getSections().size() > 3) {
             outcome.reject("analysisNarrative.sections 必须包含 1 至 3 个段落");
         }
@@ -93,17 +94,20 @@ public class StrictResultValidator {
             if (section.getTitle().length() > 60) {
                 outcome.reject("analysisNarrative.sections.title 超过长度限制");
             }
-            validateNarrativeText("analysisNarrative.sections", section.getTitle() + "\n" + section.getBody(), outcome);
+            validateNarrativeText("analysisNarrative.sections", section.getTitle() + "\n" + section.getBody(), dialect, outcome);
             validateRefs("analysisNarrative.sections", section.getEvidenceRefs(), evidenceIds, outcome);
         }
     }
 
-    private void validateNarrativeText(String field, String value, ValidationOutcome outcome) {
+    private void validateNarrativeText(String field, String value, SqlDialect dialect, ValidationOutcome outcome) {
         if (containsExecutableDdl(value)) {
             outcome.reject(field + " 不得直接包含 DDL");
         }
         if (containsExecutableSql(value)) {
             outcome.reject(field + " 不得直接包含完整 SQL");
+        }
+        if (dialect == SqlDialect.OB_ORACLE && value.toLowerCase(Locale.ROOT).contains("filesort")) {
+            outcome.reject(field + " 在 OceanBase Oracle 模式不得使用 MySQL FILESORT 术语");
         }
     }
 
