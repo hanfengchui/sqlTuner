@@ -5,12 +5,15 @@ import com.codex.sqltuner.tuning.TuningResult;
 import com.codex.sqltuner.tuning.result.AnalysisNarrative;
 import com.codex.sqltuner.tuning.result.ContextAssessment;
 import com.codex.sqltuner.tuning.result.EvidenceItem;
+import com.codex.sqltuner.tuning.result.IndexCandidate;
 import com.codex.sqltuner.tuning.result.NarrativeSection;
+import com.codex.sqltuner.tuning.result.ReviewResult;
 import com.codex.sqltuner.tuning.result.RewriteCandidate;
 import com.codex.sqltuner.tuning.result.ValidationStep;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -93,6 +96,35 @@ class StrictResultValidatorSemanticTest {
     }
 
     @Test
+    void acceptsSafeRequestForIndexDefinitionsWithoutTreatingItAsExecutableDdl() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.getMissingInformation().add("请补充 SHOW CREATE TABLE/CREATE INDEX 定义。");
+        ReviewResult review = new ReviewResult();
+        review.setVerdict("PASS");
+        review.setNotes("已移除缺少证据的 CREATE INDEX 候选。");
+        result.setReview(review);
+
+        ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isTrue();
+    }
+
+    @Test
+    void rejectsCompleteIndexDdlSmuggledIntoWarning() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.getSafetyWarnings().add("请执行 CREATE INDEX idx_orders_tenant ON orders(tenant_id)。");
+
+        ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isFalse();
+        assertThat(outcome.summary()).contains("safetyWarnings 不得直接包含 DDL");
+    }
+
+    @Test
     void rejectsNarrativeThatExceedsConciseConversationLimit() {
         String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
         SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
@@ -119,6 +151,332 @@ class StrictResultValidatorSemanticTest {
 
         assertThat(outcome.isValid()).isFalse();
         assertThat(outcome.summary()).contains("FILESORT");
+    }
+
+    @Test
+    void rejectsUnsupportedNumericPerformancePromise() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.getAnalysisNarrative().getSections().get(0)
+                .setBody("创建索引后预计平均耗时可降至 10ms，CPU 可降低 90%。");
+
+        ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isFalse();
+        assertThat(outcome.summary()).contains("无依据量化性能承诺");
+    }
+
+    @Test
+    void acceptsObservedRuntimeMetricWithoutPrediction() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.getAnalysisNarrative().getSections().get(0)
+                .setBody("当前监控记录的平均耗时为 2008ms，应以优化后的同口径实测结果比较。");
+
+        ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isTrue();
+    }
+
+    @Test
+    void acceptsObservedPercentageWithoutFuturePromise() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.getAnalysisNarrative().getSections().get(0)
+                .setBody("当前监控显示索引命中率达到 90%，该数值仅作为现状基线。");
+
+        ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isTrue();
+    }
+
+    @Test
+    void acceptsNumericValidationInstructionsWithoutTreatingThemAsPerformancePromises() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.getAnalysisNarrative().getSections().get(0)
+                .setBody("优化后执行 10 次压测，并与当前基线按同一口径比较。");
+
+        ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isTrue();
+    }
+
+    @Test
+    void rejectsUnsupportedRowCountPromise() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.getAnalysisNarrative().getSections().get(0)
+                .setBody("创建索引后预计扫描行数可降低到 10 行。");
+
+        ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isFalse();
+        assertThat(outcome.summary()).contains("无依据量化性能承诺");
+    }
+
+    @Test
+    void rejectsActualRowClaimWhenOnlyEstimateWasProvided() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.getAnalysisNarrative().getSections().get(0).setBody("该查询实际返回 1 行，因此过滤选择性极高。");
+        ContextPackage context = context();
+        context.setExplainText("estimatedRows=1, cost=332640");
+
+        ValidationOutcome outcome = validator.validate(result, context, profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isFalse();
+        assertThat(outcome.summary()).contains("缺少实际行数证据");
+    }
+
+    @Test
+    void rejectsCommonActualRowClaimVariantsWithoutRuntimeEvidence() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        String[] claims = {
+                "该查询实际只返回 1 行。",
+                "该查询实际结果只有 1 行。",
+                "该查询真实结果为 1 行。"
+        };
+        for (String claim : claims) {
+            SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+            TuningResult result = validResult(sql);
+            result.getAnalysisNarrative().getSections().get(0).setBody(claim);
+
+            ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
+
+            assertThat(outcome.isValid()).as(claim).isFalse();
+            assertThat(outcome.summary()).as(claim).contains("缺少实际行数证据");
+        }
+    }
+
+    @Test
+    void acceptsActualRowClaimWhenRuntimeEvidenceWasProvided() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.getAnalysisNarrative().getSections().get(0).setBody("该查询实际返回 1 行，当前过滤选择性较高。");
+        ContextPackage context = context();
+        context.setRuntimeMetricsText("实际返回行数: 1");
+
+        ValidationOutcome outcome = validator.validate(result, context, profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isTrue();
+    }
+
+    @Test
+    void rejectsActualRowClaimWhenEvidenceHasNoNumericValue() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.getAnalysisNarrative().getSections().get(0).setBody("该查询实际返回 1 行。");
+        ContextPackage context = context();
+        context.setExplainText("actual rows unavailable");
+
+        ValidationOutcome outcome = validator.validate(result, context, profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isFalse();
+        assertThat(outcome.summary()).contains("缺少实际行数证据");
+    }
+
+    @Test
+    void rejectsActualRowClaimWhenEvidenceContainsDifferentRowCount() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.getAnalysisNarrative().getSections().get(0).setBody("该查询实际返回 1 行。");
+        ContextPackage context = context();
+        context.setRuntimeMetricsText("实际返回行数: 99");
+
+        ValidationOutcome outcome = validator.validate(result, context, profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isFalse();
+        assertThat(outcome.summary()).contains("缺少实际行数证据");
+    }
+
+    @Test
+    void rejectsMultipleActualRowClaimsWhenOnlyOneHasEvidence() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.getAnalysisNarrative().getSections().get(0)
+                .setBody("该查询实际返回 1 行，但实际扫描 2,294,758 行。");
+        ContextPackage context = context();
+        context.setRuntimeMetricsText("实际返回行数: 1");
+
+        ValidationOutcome outcome = validator.validate(result, context, profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isFalse();
+        assertThat(outcome.summary()).contains("缺少实际行数证据");
+    }
+
+    @Test
+    void rejectsIndexCandidateCoveredByExistingIndexPrefix() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.setIndexCandidates(new ArrayList<IndexCandidate>(Collections.singletonList(
+                indexCandidate("orders", "tenant_id"))));
+        ContextPackage context = context();
+        context.setIndexText("CREATE INDEX idx_orders_existing ON orders(tenant_id, created_at DESC)");
+
+        ValidationOutcome outcome = validator.validate(result, context, profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isFalse();
+        assertThat(outcome.summary()).contains("现有索引前缀重复");
+    }
+
+    @Test
+    void rejectsIndexCandidateCoveredByShowIndexRows() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.setIndexCandidates(new ArrayList<IndexCandidate>(Collections.singletonList(
+                indexCandidate("orders", "tenant_id", "created_at DESC"))));
+        ContextPackage context = context();
+        context.setIndexText("SHOW INDEX FROM orders;\n"
+                + "| Table | Non_unique | Key_name | Seq_in_index | Column_name | Collation |\n"
+                + "| orders | 1 | idx_orders_tenant_created | 1 | tenant_id | A |\n"
+                + "| orders | 1 | idx_orders_tenant_created | 2 | created_at | D |");
+
+        ValidationOutcome outcome = validator.validate(result, context, profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isFalse();
+        assertThat(outcome.summary()).contains("现有索引前缀重复");
+    }
+
+    @Test
+    void acceptsIndexCandidateWithDifferentSecondColumn() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 AND status = 'OPEN' ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.setIndexCandidates(new ArrayList<IndexCandidate>(Collections.singletonList(
+                indexCandidate("orders", "tenant_id", "status"))));
+        ContextPackage context = context();
+        context.setIndexText("CREATE INDEX idx_orders_existing ON orders(tenant_id, created_at DESC)");
+
+        ValidationOutcome outcome = validator.validate(result, context, profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isTrue();
+    }
+
+    @Test
+    void rejectsIndexDdlThatDisagreesWithCandidateMetadata() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        IndexCandidate candidate = indexCandidate("orders", "created_at");
+        candidate.setDdl("CREATE INDEX idx_orders_tenant ON orders(tenant_id)");
+        result.setIndexCandidates(new ArrayList<IndexCandidate>(Collections.singletonList(candidate)));
+
+        ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isFalse();
+        assertThat(outcome.summary()).contains("DDL 与 tableName/columnOrder 不一致");
+    }
+
+    @Test
+    void rejectsIndexCandidateCoveredByInlinePrimaryKey() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.setIndexCandidates(new ArrayList<IndexCandidate>(Collections.singletonList(
+                indexCandidate("orders", "tenant_id"))));
+        ContextPackage context = context();
+        context.setIndexText("CREATE TABLE orders (id BIGINT, tenant_id BIGINT, created_at TIMESTAMP, PRIMARY KEY (tenant_id, created_at))");
+
+        ValidationOutcome outcome = validator.validate(result, context, profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isFalse();
+        assertThat(outcome.summary()).contains("现有索引前缀重复");
+    }
+
+    @Test
+    void rejectsIndexCandidateCoveredByInlineUniqueKey() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.setIndexCandidates(new ArrayList<IndexCandidate>(Collections.singletonList(
+                indexCandidate("orders", "tenant_id"))));
+        ContextPackage context = context();
+        context.setIndexText("CREATE TABLE orders (id BIGINT, tenant_id BIGINT, created_at TIMESTAMP, UNIQUE KEY uk_orders_tenant (tenant_id, created_at))");
+
+        ValidationOutcome outcome = validator.validate(result, context, profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isFalse();
+        assertThat(outcome.summary()).contains("现有索引前缀重复");
+    }
+
+    @Test
+    void doesNotTreatForeignKeyConstraintAsExistingIndex() {
+        String sql = "SELECT * FROM child_orders WHERE parent_id = 1";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_ORACLE);
+        TuningResult result = validResult(sql);
+        result.setIndexCandidates(new ArrayList<IndexCandidate>(Collections.singletonList(
+                indexCandidate("child_orders", "parent_id"))));
+        ContextPackage context = context();
+        context.setIndexText("CREATE TABLE child_orders (id NUMBER, parent_id NUMBER, "
+                + "CONSTRAINT fk_child_parent FOREIGN KEY (parent_id) REFERENCES parent_orders(id))");
+
+        ValidationOutcome outcome = validator.validate(result, context, profile, SqlDialect.OB_ORACLE);
+
+        assertThat(outcome.isValid()).isTrue();
+    }
+
+    @Test
+    void rejectsIndexDdlWithDirectionDifferentFromCandidateMetadata() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        IndexCandidate candidate = indexCandidate("orders", "tenant_id ASC", "created_at DESC");
+        candidate.setDdl("CREATE INDEX idx_orders_sort ON orders(tenant_id ASC, created_at ASC)");
+        result.setIndexCandidates(new ArrayList<IndexCandidate>(Collections.singletonList(candidate)));
+
+        ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isFalse();
+        assertThat(outcome.summary()).contains("DDL 与 tableName/columnOrder 不一致");
+    }
+
+    @Test
+    void acceptsCandidateThatExtendsInlinePrimaryKey() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 AND status = 'OPEN' ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.setIndexCandidates(new ArrayList<IndexCandidate>(Collections.singletonList(
+                indexCandidate("orders", "tenant_id", "status"))));
+        ContextPackage context = context();
+        context.setIndexText("CREATE TABLE orders (id BIGINT, tenant_id BIGINT, status VARCHAR(32), PRIMARY KEY (tenant_id))");
+
+        ValidationOutcome outcome = validator.validate(result, context, profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isTrue();
+    }
+
+    @Test
+    void rejectsClaimsHiddenInWarningsReviewAndEvidenceSummary() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.getSafetyWarnings().add("该方案预计耗时降至 10ms。");
+        ReviewResult review = new ReviewResult();
+        review.setVerdict("PASS");
+        review.setNotes("预计 CPU 可降低 90%。");
+        result.setReview(review);
+        result.getEvidenceCatalog().get(0).setSummary("预计逻辑读降到十位数。");
+
+        ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isFalse();
+        assertThat(outcome.summary())
+                .contains("safetyWarnings 包含无依据量化性能承诺")
+                .contains("review 包含无依据量化性能承诺")
+                .contains("evidenceCatalog 包含无依据量化性能承诺");
     }
 
     private ValidationOutcome validateMysql(String originalSql, String rewriteSql) {
@@ -191,5 +549,18 @@ class StrictResultValidatorSemanticTest {
         step.setAction("Run EXPLAIN");
         step.setEvidenceRefs(Collections.singletonList("E1"));
         return step;
+    }
+
+    private IndexCandidate indexCandidate(String tableName, String... columns) {
+        IndexCandidate candidate = new IndexCandidate();
+        candidate.setTableName(tableName);
+        candidate.setColumnOrder(Arrays.asList(columns));
+        candidate.setBenefit("减少不必要的扫描");
+        candidate.setWriteCost("需要评估写入成本");
+        candidate.setRisk("需验证现有索引覆盖关系");
+        candidate.setValidation("比较优化前后执行计划");
+        candidate.setConfidence("MEDIUM");
+        candidate.setEvidenceRefs(Collections.singletonList("E1"));
+        return candidate;
     }
 }

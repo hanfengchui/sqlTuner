@@ -498,11 +498,7 @@ public class ConfigurableLlmClient implements LlmClient {
                 + "\"validationPlan\":[{\"action\":\"在测试库对比优化前后 EXPLAIN\",\"expectedSignal\":\"key/rows/Extra 改善且结果集一致\",\"evidenceRefs\":[\"E_SQL\"]}],"
                 + "\"missingInformation\":[\"表行数\",\"现有索引\",\"完整 EXPLAIN\",\"OceanBase 版本\"],"
                 + "\"safetyWarnings\":[\"本次为 mock 示例输出，未调用真实模型，请勿直接用于生产\",\"不要直接在生产创建索引，先评估写入成本和磁盘空间\"],"
-                + "\"review\":{\"verdict\":\"" + verdict + "\",\"notes\":\"mock review\"},"
-                + "\"findings\":[{\"title\":\"【示例】优先检查执行计划中的扫描行数和索引命中情况\",\"evidence\":\"E_SQL\",\"impact\":\"可能影响查询延迟\",\"confidence\":\"LOW\"}],"
-                + "\"validationSteps\":[\"在测试库对比优化前后 EXPLAIN\"],"
-                + "\"riskWarnings\":[\"本次为 mock 示例输出，未调用真实模型，请勿直接用于生产\"],"
-                + "\"needMoreInfo\":[\"表行数\",\"现有索引\",\"完整 EXPLAIN\"]"
+                + "\"review\":{\"verdict\":\"" + verdict + "\",\"notes\":\"mock review\"}"
                 + "}";
     }
 

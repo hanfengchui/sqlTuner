@@ -11,13 +11,77 @@ import com.codex.sqltuner.tuning.result.RewriteCandidate;
 import com.codex.sqltuner.tuning.result.ValidationStep;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Component
 public class StrictResultValidator {
+    private static final Pattern UNSUPPORTED_PERFORMANCE_PROMISE = Pattern.compile(
+            "(?:预计|预期|保证|确保|优化后|调整后|上线后|"
+                    + "可(?:以)?(?:降(?:低|至|到)|提升|减少|缩短)|"
+                    + "能够(?:降(?:低|至|到)|提升|减少|缩短)|"
+                    + "将(?:会)?(?:降(?:低|至|到)|提升|减少|缩短)|"
+                    + "会(?:降(?:低|至|到)|提升|减少|缩短)|"
+                    + "降(?:至|到)|提升(?:至|到)|减少(?:至|到)|缩短(?:至|到)|"
+                    + "reduce(?:d)?(?:\\s+to)?|drop(?:ped)?(?:\\s+to)?|improve(?:d)?(?:\\s+(?:to|by))?)"
+                    + "[^。；\\n]{0,60}"
+                    + "(?:\\d+(?:\\.\\d+)?\\s*(?:ms|毫秒|s|秒|%|倍|x)|十位数|个位数)",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final Pattern UNSUPPORTED_ROW_COUNT_PROMISE = Pattern.compile(
+            "(?:(?:预计|预期|保证|确保|优化后|调整后|上线后)[^。；\\n]{0,32})?"
+                    + "(?:扫描(?:行数|量)?|读取(?:行数|量)?|处理(?:行数|量)?|返回行数|结果行数|逻辑读|物理读|rows?)"
+                    + "[^。；\\n]{0,32}"
+                    + "(?:可(?:以)?|能够|将(?:会)?|会|预计|预期|降(?:低|至|到)|减少(?:至|到)|缩短(?:至|到))"
+                    + "[^。；\\n]{0,24}\\d+(?:\\.\\d+)?\\s*(?:行|rows?|次)",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final Pattern ACTUAL_ROW_CLAIM = Pattern.compile(
+            "(?:(?:实际|真实|平均)[^。；\\n]{0,16}(?:返回|输出|扫描|读取|处理|结果)[^。；\\n]{0,16}\\d[\\d,]*\\s*(?:行|rows?)|"
+                    + "actual\\s+(?:rows?|cardinality)\\s*(?:is|=|:)?\\s*\\d[\\d,]*)",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final Pattern ACTUAL_ROW_CLAIM_NUMBER = Pattern.compile(
+            "(?:(?:实际|真实|平均)[^。；\\n]{0,20}(?:返回|输出|扫描|读取|处理|结果)[^。；\\n]{0,20}?(\\d[\\d,]*)\\s*(?:行|rows?)|"
+                    + "actual\\s+(?:rows?|cardinality)\\s*(?:is|=|:)?\\s*(\\d[\\d,]*))",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final Pattern ACTUAL_ROW_EVIDENCE_NUMBER = Pattern.compile(
+            "(?:(?:实际|真实|平均)[^。；\\n]{0,20}(?:返回|输出|扫描|读取|处理|结果)(?:行数)?[^。；\\n]{0,20}?(\\d[\\d,]*)(?:\\s*(?:行|rows?))?|"
+                    + "actual\\s+(?:rows?|cardinality)\\s*(?:is|=|:)?\\s*(\\d[\\d,]*)|"
+                    + "a-rows\\s*(?:is|=|:)?\\s*(\\d[\\d,]*)|"
+                    + "rows\\s+(?:produced|returned)\\s*(?:is|=|:)?\\s*(\\d[\\d,]*))",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final Pattern CREATE_INDEX_DEFINITION = Pattern.compile(
+            "\\bcreate\\s+(?:unique\\s+)?index\\s+[`\"a-zA-Z0-9_$#.]+\\s+on\\s+"
+                    + "([`\"a-zA-Z0-9_$#.]+)\\s*\\(([^)]*)\\)",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final Pattern EXECUTABLE_DDL = Pattern.compile(
+            "(?:\\bcreate\\s+(?:unique\\s+)?index\\s+[`\"a-zA-Z0-9_$#.]+\\s+on\\s+"
+                    + "[`\"a-zA-Z0-9_$#.]+\\s*\\(|"
+                    + "\\balter\\s+table\\s+[`\"a-zA-Z0-9_$#.]+\\s+"
+                    + "(?:add|drop|modify|alter|rename|change)\\b|"
+                    + "\\bdrop\\s+index\\s+[`\"a-zA-Z0-9_$#.]+(?:\\s+on\\s+[`\"a-zA-Z0-9_$#.]+)?\\b)",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final Pattern SHOW_INDEX_TABLE = Pattern.compile(
+            "\\bshow\\s+(?:index|indexes|keys)\\s+(?:from|in)\\s+([`\"a-zA-Z0-9_$#.]+)",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final Pattern CREATE_TABLE_START = Pattern.compile(
+            "\\bcreate\\s+table\\s+([`\"a-zA-Z0-9_$#.]+)\\s*\\(",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final Pattern INLINE_INDEX_DEFINITION = Pattern.compile(
+            "(?:^|[,;\\r\\n])\\s*(?:(?:constraint\\s+[`\"a-zA-Z0-9_$#.]+\\s+)?primary\\s+key|"
+                    + "(?:unique\\s+)?(?:key|index)(?:\\s+[`\"a-zA-Z0-9_$#.]+)?)\\s*\\(([^)]*)\\)",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final Pattern INDEX_COLUMN = Pattern.compile(
+            "^\\s*([`\"a-zA-Z0-9_$#.]+)(?:\\s+(ASC|DESC))?\\s*$",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+
     private final SqlStatementParser parser;
 
     public StrictResultValidator(SqlStatementParser parser) {
@@ -40,11 +104,13 @@ public class StrictResultValidator {
             outcome.reject("缺少 evidenceCatalog");
         }
         Set<String> evidenceIds = evidenceIds(result);
-        validateNarrative(result.getAnalysisNarrative(), evidenceIds, dialect, outcome);
-        validateDiagnoses(result, evidenceIds, outcome);
+        validateClaimText("summary", result.getSummary(), context, outcome);
+        validateNarrative(result.getAnalysisNarrative(), evidenceIds, dialect, context, outcome);
+        validateDiagnoses(result, evidenceIds, context, outcome);
         validateRewriteCandidates(result, context, originalProfile, dialect, evidenceIds, outcome);
-        validateIndexCandidates(result, context, evidenceIds, outcome);
+        validateIndexCandidates(result, context, originalProfile, evidenceIds, outcome);
         validateValidationPlan(result, evidenceIds, outcome);
+        validateSupplementalText(result, dialect, context, outcome);
         if (!context.isAllowHighConfidence()) {
             downgradeHighConfidence(result);
         }
@@ -68,6 +134,7 @@ public class StrictResultValidator {
     private void validateNarrative(AnalysisNarrative narrative,
                                    Set<String> evidenceIds,
                                    SqlDialect dialect,
+                                   ContextPackage context,
                                    ValidationOutcome outcome) {
         if (narrative == null || !hasText(narrative.getConclusion())) {
             outcome.reject("缺少 analysisNarrative.conclusion");
@@ -76,7 +143,7 @@ public class StrictResultValidator {
         if (narrative.getConclusion().length() > 480) {
             outcome.reject("analysisNarrative.conclusion 超过长度限制");
         }
-        validateNarrativeText("analysisNarrative.conclusion", narrative.getConclusion(), dialect, outcome);
+        validateNarrativeText("analysisNarrative.conclusion", narrative.getConclusion(), dialect, context, outcome);
         if (narrative.getSections().isEmpty() || narrative.getSections().size() > 4) {
             outcome.reject("analysisNarrative.sections 必须包含 1 至 4 个阅读块");
         }
@@ -94,12 +161,16 @@ public class StrictResultValidator {
             if (section.getTitle().length() > 60) {
                 outcome.reject("analysisNarrative.sections.title 超过长度限制");
             }
-            validateNarrativeText("analysisNarrative.sections", section.getTitle() + "\n" + section.getBody(), dialect, outcome);
+            validateNarrativeText("analysisNarrative.sections", section.getTitle() + "\n" + section.getBody(), dialect, context, outcome);
             validateRefs("analysisNarrative.sections", section.getEvidenceRefs(), evidenceIds, outcome);
         }
     }
 
-    private void validateNarrativeText(String field, String value, SqlDialect dialect, ValidationOutcome outcome) {
+    private void validateNarrativeText(String field,
+                                       String value,
+                                       SqlDialect dialect,
+                                       ContextPackage context,
+                                       ValidationOutcome outcome) {
         if (containsExecutableDdl(value)) {
             outcome.reject(field + " 不得直接包含 DDL");
         }
@@ -109,6 +180,7 @@ public class StrictResultValidator {
         if (dialect == SqlDialect.OB_ORACLE && value.toLowerCase(Locale.ROOT).contains("filesort")) {
             outcome.reject(field + " 在 OceanBase Oracle 模式不得使用 MySQL FILESORT 术语");
         }
+        validateClaimText(field, value, context, outcome);
     }
 
     private boolean isNarrativeKind(String kind) {
@@ -118,19 +190,24 @@ public class StrictResultValidator {
     }
 
     private boolean containsExecutableDdl(String value) {
-        return value.toLowerCase(Locale.ROOT).matches("(?s).*\\b(create\\s+(unique\\s+)?index|alter\\s+table|drop\\s+index)\\b.*");
+        return EXECUTABLE_DDL.matcher(value).find();
     }
 
     private boolean containsExecutableSql(String value) {
         return value.toLowerCase(Locale.ROOT).matches("(?s).*\\b(select\\s+.+?\\s+from|update\\s+.+?\\s+set|insert\\s+into|delete\\s+from)\\b.*");
     }
 
-    private void validateDiagnoses(TuningResult result, Set<String> evidenceIds, ValidationOutcome outcome) {
+    private void validateDiagnoses(TuningResult result,
+                                   Set<String> evidenceIds,
+                                   ContextPackage context,
+                                   ValidationOutcome outcome) {
         for (Diagnosis diagnosis : result.getDiagnoses()) {
             if (!hasText(diagnosis.getTitle()) || !hasText(diagnosis.getSeverity()) || !hasText(diagnosis.getConfidence())) {
                 outcome.reject("diagnoses 字段缺少 title/severity/confidence");
             }
             validateRefs("diagnoses", diagnosis.getEvidenceRefs(), evidenceIds, outcome);
+            validateClaimText("diagnoses", combine(
+                    diagnosis.getTitle(), diagnosis.getImpact(), diagnosis.getPrecondition()), context, outcome);
         }
     }
 
@@ -144,6 +221,9 @@ public class StrictResultValidator {
         while (iterator.hasNext()) {
             RewriteCandidate candidate = iterator.next();
             validateRefs("rewriteCandidates", candidate.getEvidenceRefs(), evidenceIds, outcome);
+            validateClaimText("rewriteCandidates", combine(
+                    candidate.getChange(), candidate.getSemanticCheck(), candidate.getRisk(), candidate.getValidation()),
+                    context, outcome);
             if (!hasText(candidate.getSql())) {
                 outcome.reject("rewriteCandidates 缺少 sql");
                 continue;
@@ -214,12 +294,29 @@ public class StrictResultValidator {
         }
     }
 
-    private void validateIndexCandidates(TuningResult result, ContextPackage context, Set<String> evidenceIds, ValidationOutcome outcome) {
+    private void validateIndexCandidates(TuningResult result,
+                                         ContextPackage context,
+                                         SqlStatementProfile originalProfile,
+                                         Set<String> evidenceIds,
+                                         ValidationOutcome outcome) {
         for (IndexCandidate candidate : result.getIndexCandidates()) {
             if (!hasText(candidate.getTableName()) || candidate.getColumnOrder().isEmpty()) {
                 outcome.reject("indexCandidates 缺少 tableName/columnOrder");
             }
             validateRefs("indexCandidates", candidate.getEvidenceRefs(), evidenceIds, outcome);
+            validateClaimText("indexCandidates", combine(
+                    candidate.getBenefit(), candidate.getWriteCost(), candidate.getRisk(), candidate.getValidation()),
+                    context, outcome);
+            IndexDefinition candidateDdl = validateCandidateDdl(candidate, outcome);
+            List<String> candidateColumns = candidateDdl == null
+                    ? normalizeColumns(candidate.getColumnOrder())
+                    : candidateDdl.columns;
+            String candidateTable = candidateDdl == null
+                    ? normalizeIdentifier(candidate.getTableName())
+                    : candidateDdl.table;
+            if (isCoveredByExistingIndex(candidateTable, candidateColumns, context.getIndexText(), originalProfile)) {
+                outcome.reject("indexCandidates 与现有索引前缀重复: " + safeIdentifier(candidate.getTableName()));
+            }
             if (!context.isAllowIndexDdl() && hasText(candidate.getDdl())) {
                 outcome.reject("证据不足时禁止输出候选索引 DDL");
             }
@@ -238,6 +335,445 @@ public class StrictResultValidator {
                 outcome.reject("validationPlan 缺少 action");
             }
             validateRefs("validationPlan", step.getEvidenceRefs(), evidenceIds, outcome);
+            validatePerformancePromise("validationPlan", combine(step.getAction(), step.getExpectedSignal()), outcome);
+        }
+    }
+
+    private void validateSupplementalText(TuningResult result,
+                                          SqlDialect dialect,
+                                          ContextPackage context,
+                                          ValidationOutcome outcome) {
+        for (String value : result.getMissingInformation()) {
+            validateDisplayText("missingInformation", value, dialect, context, outcome);
+        }
+        for (String value : result.getSafetyWarnings()) {
+            validateDisplayText("safetyWarnings", value, dialect, context, outcome);
+        }
+        for (EvidenceItem evidence : result.getEvidenceCatalog()) {
+            validateDisplayText("evidenceCatalog", evidence.getSummary(), dialect, context, outcome);
+        }
+        if (result.getReview() != null) {
+            validateDisplayText("review", result.getReview().getNotes(), dialect, context, outcome);
+            for (String revision : result.getReview().getRevisions()) {
+                validateDisplayText("review", revision, dialect, context, outcome);
+            }
+        }
+    }
+
+    private void validateDisplayText(String field,
+                                     String value,
+                                     SqlDialect dialect,
+                                     ContextPackage context,
+                                     ValidationOutcome outcome) {
+        if (!hasText(value)) {
+            return;
+        }
+        if (containsExecutableDdl(value)) {
+            outcome.reject(field + " 不得直接包含 DDL");
+        }
+        if (containsExecutableSql(value)) {
+            outcome.reject(field + " 不得直接包含完整 SQL");
+        }
+        if (dialect == SqlDialect.OB_ORACLE && value.toLowerCase(Locale.ROOT).contains("filesort")) {
+            outcome.reject(field + " 在 OceanBase Oracle 模式不得使用 MySQL FILESORT 术语");
+        }
+        validateClaimText(field, value, context, outcome);
+    }
+
+    private void validateClaimText(String field,
+                                   String value,
+                                   ContextPackage context,
+                                   ValidationOutcome outcome) {
+        if (!hasText(value)) {
+            return;
+        }
+        validatePerformancePromise(field, value, outcome);
+        if (ACTUAL_ROW_CLAIM.matcher(value).find() && !hasMatchingActualRowEvidence(value, context)) {
+            outcome.reject(field + " 缺少实际行数证据，不得把估计行数写成实际结果");
+        }
+    }
+
+    private void validatePerformancePromise(String field, String value, ValidationOutcome outcome) {
+        if (hasText(value) && (UNSUPPORTED_PERFORMANCE_PROMISE.matcher(value).find()
+                || UNSUPPORTED_ROW_COUNT_PROMISE.matcher(value).find())) {
+            outcome.reject(field + " 包含无依据量化性能承诺");
+        }
+    }
+
+    private boolean hasMatchingActualRowEvidence(String claimText, ContextPackage context) {
+        if (context == null) {
+            return false;
+        }
+        Set<String> claimedRows = capturedNumbers(ACTUAL_ROW_CLAIM_NUMBER.matcher(claimText));
+        Set<String> evidenceRows = capturedNumbers(ACTUAL_ROW_EVIDENCE_NUMBER.matcher(combine(
+                context.getRuntimeMetricsText(), context.getExplainText())));
+        if (claimedRows.isEmpty() || evidenceRows.isEmpty()) {
+            return false;
+        }
+        return evidenceRows.containsAll(claimedRows);
+    }
+
+    private Set<String> capturedNumbers(Matcher matcher) {
+        Set<String> values = new HashSet<String>();
+        while (matcher.find()) {
+            for (int group = 1; group <= matcher.groupCount(); group++) {
+                if (matcher.group(group) != null) {
+                    values.add(matcher.group(group).replace(",", ""));
+                }
+            }
+        }
+        return values;
+    }
+
+    private IndexDefinition validateCandidateDdl(IndexCandidate candidate, ValidationOutcome outcome) {
+        if (candidate == null || !hasText(candidate.getDdl())) {
+            return null;
+        }
+        Matcher matcher = CREATE_INDEX_DEFINITION.matcher(candidate.getDdl());
+        if (!matcher.find()) {
+            outcome.reject("indexCandidates.ddl 必须是单条 CREATE INDEX");
+            return null;
+        }
+        String remainder = (candidate.getDdl().substring(0, matcher.start())
+                + candidate.getDdl().substring(matcher.end())).replace(";", "").trim();
+        String ddlTable = matcher.group(1);
+        String ddlColumns = matcher.group(2);
+        if (!remainder.isEmpty() || matcher.find()) {
+            outcome.reject("indexCandidates.ddl 只能包含单条 CREATE INDEX");
+            return null;
+        }
+        IndexDefinition definition = indexDefinition(ddlTable, ddlColumns);
+        List<String> metadataColumns = normalizeColumns(candidate.getColumnOrder());
+        if (definition == null
+                || !definition.table.equals(normalizeIdentifier(candidate.getTableName()))
+                || !definition.columns.equals(metadataColumns)) {
+            outcome.reject("indexCandidates DDL 与 tableName/columnOrder 不一致");
+            return null;
+        }
+        return definition;
+    }
+
+    private boolean isCoveredByExistingIndex(String candidateTable,
+                                             List<String> candidateColumns,
+                                             String indexText,
+                                             SqlStatementProfile originalProfile) {
+        if (!hasText(candidateTable) || candidateColumns == null || candidateColumns.isEmpty() || !hasText(indexText)) {
+            return false;
+        }
+        for (IndexDefinition existing : existingIndexDefinitions(indexText)) {
+            if (!sameIndexTable(candidateTable, existing.table, originalProfile)) {
+                continue;
+            }
+            if (startsWith(existing.columns, candidateColumns)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private List<IndexDefinition> existingIndexDefinitions(String indexText) {
+        List<IndexDefinition> definitions = new ArrayList<IndexDefinition>();
+        Matcher standalone = CREATE_INDEX_DEFINITION.matcher(indexText);
+        while (standalone.find()) {
+            IndexDefinition definition = indexDefinition(standalone.group(1), standalone.group(2));
+            if (definition != null) {
+                definitions.add(definition);
+            }
+        }
+        definitions.addAll(showIndexDefinitions(indexText));
+
+        boolean scopedInlineFound = false;
+        Matcher tableMatcher = CREATE_TABLE_START.matcher(indexText);
+        while (tableMatcher.find()) {
+            int open = tableMatcher.end() - 1;
+            int close = matchingParenthesis(indexText, open);
+            if (close < 0) {
+                continue;
+            }
+            Matcher inline = INLINE_INDEX_DEFINITION.matcher(indexText.substring(open + 1, close));
+            while (inline.find()) {
+                IndexDefinition definition = indexDefinition(tableMatcher.group(1), inline.group(1));
+                if (definition != null) {
+                    definitions.add(definition);
+                    scopedInlineFound = true;
+                }
+            }
+        }
+
+        if (!scopedInlineFound) {
+            Matcher inline = INLINE_INDEX_DEFINITION.matcher(indexText);
+            while (inline.find()) {
+                IndexDefinition definition = indexDefinition("", inline.group(1));
+                if (definition != null) {
+                    definitions.add(definition);
+                }
+            }
+        }
+        return definitions;
+    }
+
+    private List<IndexDefinition> showIndexDefinitions(String indexText) {
+        List<IndexDefinition> definitions = new ArrayList<IndexDefinition>();
+        String fallbackTable = "";
+        Matcher showIndex = SHOW_INDEX_TABLE.matcher(indexText);
+        if (showIndex.find()) {
+            fallbackTable = normalizeIdentifier(showIndex.group(1));
+        }
+
+        String[] lines = indexText.split("\\r?\\n");
+        List<String> headers = null;
+        int tableColumn = -1;
+        int keyColumn = -1;
+        int sequenceColumn = -1;
+        int nameColumn = -1;
+        int collationColumn = -1;
+        Map<String, TreeMap<Integer, String>> grouped = new LinkedHashMap<String, TreeMap<Integer, String>>();
+        Map<String, String> groupedTables = new LinkedHashMap<String, String>();
+        for (String line : lines) {
+            List<String> cells = tableCells(line);
+            if (cells.isEmpty()) {
+                continue;
+            }
+            if (headers == null) {
+                List<String> normalizedHeaders = normalizedHeaders(cells);
+                keyColumn = normalizedHeaders.indexOf("keyname");
+                sequenceColumn = normalizedHeaders.indexOf("seqinindex");
+                nameColumn = normalizedHeaders.indexOf("columnname");
+                if (keyColumn < 0 || sequenceColumn < 0 || nameColumn < 0) {
+                    continue;
+                }
+                headers = normalizedHeaders;
+                tableColumn = headers.indexOf("table");
+                collationColumn = headers.indexOf("collation");
+                continue;
+            }
+            int requiredMax = Math.max(keyColumn, Math.max(sequenceColumn, nameColumn));
+            if (cells.size() <= requiredMax || isSeparatorRow(cells)) {
+                continue;
+            }
+            Integer sequence = positiveInteger(cells.get(sequenceColumn));
+            String keyName = normalizeIdentifier(cells.get(keyColumn));
+            String columnName = normalizeIdentifier(cells.get(nameColumn));
+            String table = tableColumn >= 0 && cells.size() > tableColumn
+                    ? normalizeIdentifier(cells.get(tableColumn))
+                    : fallbackTable;
+            if (sequence == null || keyName.isEmpty() || columnName.isEmpty()
+                    || !columnName.matches("[a-z0-9_$#]+")) {
+                continue;
+            }
+            String direction = "asc";
+            if (collationColumn >= 0 && cells.size() > collationColumn
+                    && "d".equalsIgnoreCase(cells.get(collationColumn).trim())) {
+                direction = "desc";
+            }
+            String groupKey = table + "\u0000" + keyName;
+            TreeMap<Integer, String> columns = grouped.get(groupKey);
+            if (columns == null) {
+                columns = new TreeMap<Integer, String>();
+                grouped.put(groupKey, columns);
+                groupedTables.put(groupKey, table);
+            }
+            columns.put(sequence, columnName + " " + direction);
+        }
+        for (Map.Entry<String, TreeMap<Integer, String>> entry : grouped.entrySet()) {
+            if (!entry.getValue().isEmpty()) {
+                definitions.add(new IndexDefinition(groupedTables.get(entry.getKey()),
+                        new ArrayList<String>(entry.getValue().values())));
+            }
+        }
+        return definitions;
+    }
+
+    private List<String> tableCells(String line) {
+        String trimmed = line == null ? "" : line.trim();
+        if (trimmed.isEmpty() || trimmed.matches("^[+|\\-: ]+$")) {
+            return new ArrayList<String>();
+        }
+        String[] raw;
+        if (trimmed.indexOf('|') >= 0) {
+            raw = trimmed.replaceFirst("^\\|", "").replaceFirst("\\|$", "").split("\\s*\\|\\s*", -1);
+        } else if (trimmed.indexOf('\t') >= 0) {
+            raw = trimmed.split("\\t+", -1);
+        } else {
+            raw = trimmed.split("\\s{2,}", -1);
+        }
+        List<String> cells = new ArrayList<String>();
+        for (String value : raw) {
+            cells.add(value.trim());
+        }
+        return cells;
+    }
+
+    private List<String> normalizedHeaders(List<String> cells) {
+        List<String> headers = new ArrayList<String>();
+        for (String cell : cells) {
+            headers.add(cell.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", ""));
+        }
+        return headers;
+    }
+
+    private boolean isSeparatorRow(List<String> cells) {
+        for (String cell : cells) {
+            if (!cell.matches("^[-+: ]*$")) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private Integer positiveInteger(String value) {
+        try {
+            int parsed = Integer.parseInt(value.trim());
+            return parsed > 0 ? parsed : null;
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private IndexDefinition indexDefinition(String table, String columnsText) {
+        List<String> columns = normalizeColumns(splitColumns(columnsText));
+        if (columns.isEmpty()) {
+            return null;
+        }
+        return new IndexDefinition(normalizeIdentifier(table), columns);
+    }
+
+    private boolean sameIndexTable(String candidateTable,
+                                   String existingTable,
+                                   SqlStatementProfile originalProfile) {
+        if (candidateTable.equals(existingTable)) {
+            return true;
+        }
+        if (!existingTable.isEmpty() || originalProfile == null || originalProfile.getTables().size() != 1) {
+            return false;
+        }
+        return candidateTable.equals(normalizeIdentifier(originalProfile.getTables().get(0)));
+    }
+
+    private int matchingParenthesis(String value, int open) {
+        int depth = 0;
+        char quote = 0;
+        for (int i = open; i < value.length(); i++) {
+            char current = value.charAt(i);
+            if (quote != 0) {
+                if (current == quote) {
+                    if (i + 1 < value.length() && value.charAt(i + 1) == quote) {
+                        i++;
+                    } else {
+                        quote = 0;
+                    }
+                } else if (current == '\\' && i + 1 < value.length()) {
+                    i++;
+                }
+                continue;
+            }
+            if (current == '\'' || current == '\"' || current == '`') {
+                quote = current;
+            } else if (current == '(') {
+                depth++;
+            } else if (current == ')') {
+                depth--;
+                if (depth == 0) {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
+    private List<String> splitColumns(String value) {
+        List<String> columns = new ArrayList<String>();
+        if (!hasText(value)) {
+            return columns;
+        }
+        for (String column : value.split(",")) {
+            columns.add(column);
+        }
+        return columns;
+    }
+
+    private List<String> normalizeColumns(Iterable<String> values) {
+        List<String> columns = new ArrayList<String>();
+        if (values == null) {
+            return columns;
+        }
+        for (String value : values) {
+            if (!hasText(value)) {
+                return new ArrayList<String>();
+            }
+            Matcher columnMatcher = INDEX_COLUMN.matcher(value);
+            if (!columnMatcher.matches()) {
+                return new ArrayList<String>();
+            }
+            String normalized = normalizeIdentifier(columnMatcher.group(1));
+            if (!normalized.matches("[a-z0-9_$#]+")) {
+                return new ArrayList<String>();
+            }
+            String direction = columnMatcher.group(2) == null
+                    ? "asc"
+                    : columnMatcher.group(2).toLowerCase(Locale.ROOT);
+            columns.add(normalized + " " + direction);
+        }
+        return columns;
+    }
+
+    private boolean startsWith(List<String> existing, List<String> candidate) {
+        if (existing.size() < candidate.size()) {
+            return false;
+        }
+        for (int i = 0; i < candidate.size(); i++) {
+            if (!existing.get(i).equals(candidate.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private String normalizeIdentifier(String value) {
+        if (!hasText(value)) {
+            return "";
+        }
+        String normalized = value.trim()
+                .replace("`", "")
+                .replace("\"", "")
+                .replace("[", "")
+                .replace("]", "");
+        int separator = normalized.lastIndexOf('.');
+        if (separator >= 0) {
+            normalized = normalized.substring(separator + 1);
+        }
+        return normalized.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String safeIdentifier(String value) {
+        String normalized = normalizeIdentifier(value);
+        return normalized.isEmpty() ? "unknown" : normalized;
+    }
+
+    private String combine(String... values) {
+        StringBuilder builder = new StringBuilder();
+        if (values == null) {
+            return "";
+        }
+        for (String value : values) {
+            if (!hasText(value)) {
+                continue;
+            }
+            if (builder.length() > 0) {
+                builder.append('\n');
+            }
+            builder.append(value);
+        }
+        return builder.toString();
+    }
+
+    private static final class IndexDefinition {
+        private final String table;
+        private final List<String> columns;
+
+        private IndexDefinition(String table, List<String> columns) {
+            this.table = table;
+            this.columns = columns;
         }
     }
 

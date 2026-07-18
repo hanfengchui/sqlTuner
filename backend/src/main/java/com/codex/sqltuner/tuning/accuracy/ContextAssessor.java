@@ -14,6 +14,9 @@ public class ContextAssessor {
         ContextPackage context = new ContextPackage();
         ContextAssessment assessment = new ContextAssessment();
         context.setAssessment(assessment);
+        context.setIndexText(task.getIndexText());
+        context.setExplainText(task.getExplainText());
+        context.setRuntimeMetricsText(task.getRuntimeMetricsText());
 
         addEvidence(context, "E_SQL", "USER_SQL", "已提供脱敏后的单条 " + profile.getStatementType() + " SQL", "HIGH");
         assessment.getAvailableEvidence().add("E_SQL");

@@ -219,6 +219,58 @@ class TuningHarnessServiceTest {
     }
 
     @Test
+    void unsupportedPerformancePromiseGetsExactlyOneRepairCall() throws Exception {
+        RecordingLlmClient client = new RecordingLlmClient(
+                contentWithNarrativeBody("创建索引后预计平均耗时可降至 10ms，CPU 可降低 90%。"),
+                mockContent());
+        TuningHarnessService service = service(client);
+
+        SqlTuningTask task = service.createTask(1L, sqlOnlyRequest());
+        service.run(task);
+
+        assertThat(client.callCount()).isEqualTo(2);
+        assertThat(task.getStatus()).isEqualTo(TaskStatus.DONE);
+        assertThat(task.getArtifacts()).extracting("nodeName").contains("resultValidateFailed", "llmRepair");
+    }
+
+    @Test
+    void duplicateIndexCandidateGetsExactlyOneRepairCall() throws Exception {
+        String sql = "select id, tenant_id from orders where tenant_id = 1 order by created_at desc limit 10";
+        RecordingLlmClient client = new RecordingLlmClient(duplicateIndexContent(), mockContent());
+        TuningHarnessService service = service(client);
+        CreateTuningTaskRequest request = new CreateTuningTaskRequest();
+        request.setDbDialect("OceanBase MySQL");
+        request.setSqlText(sql);
+        request.setSchemaText("create table orders (id bigint primary key, tenant_id bigint, created_at timestamp)");
+        request.setIndexText("CREATE INDEX idx_orders_existing ON orders(tenant_id, created_at DESC)");
+        request.setExplainText("TABLE SCAN orders rows=100000");
+        request.setObVersion("4.3.3");
+        request.setTableStatsText("orders rows=100000");
+        request.setDeepAnalysis(Boolean.FALSE);
+
+        SqlTuningTask task = service.createTask(1L, request);
+        service.run(task);
+
+        assertThat(client.callCount()).isEqualTo(2);
+        assertThat(task.getStatus()).isEqualTo(TaskStatus.DONE);
+        assertThat(task.getResult().getIndexCandidates()).isEmpty();
+        assertThat(task.getArtifacts()).extracting("nodeName").contains("resultValidateFailed", "llmRepair");
+    }
+
+    @Test
+    void legacyModelFieldsGetRejectedAndRepairedOnce() throws Exception {
+        RecordingLlmClient client = new RecordingLlmClient(contentWithLegacyRiskWarning(), mockContent());
+        TuningHarnessService service = service(client);
+
+        SqlTuningTask task = service.createTask(1L, sqlOnlyRequest());
+        service.run(task);
+
+        assertThat(client.callCount()).isEqualTo(2);
+        assertThat(task.getStatus()).isEqualTo(TaskStatus.DONE);
+        assertThat(task.getArtifacts()).extracting("nodeName").contains("resultValidateFailed", "llmRepair");
+    }
+
+    @Test
     void keepsLastSafeDraftWhenLaterNarrativeTriggersSqlGate() {
         String safeAccumulated = "{\"analysisNarrative\":{\"conclusion\":\"安全结论\"";
         String gatedAccumulated = "{\"analysisNarrative\":{\"conclusion\":\"安全结论\","
@@ -631,6 +683,40 @@ class TuningHarnessServiceTest {
         com.fasterxml.jackson.databind.node.ObjectNode diagnosis =
                 (com.fasterxml.jackson.databind.node.ObjectNode) root.withArray("diagnoses").get(0);
         diagnosis.putNull("evidenceRefs");
+        return objectMapper.writeValueAsString(root);
+    }
+
+    private String contentWithNarrativeBody(String body) throws Exception {
+        com.fasterxml.jackson.databind.node.ObjectNode root =
+                (com.fasterxml.jackson.databind.node.ObjectNode) objectMapper.readTree(mockContent());
+        com.fasterxml.jackson.databind.node.ObjectNode section =
+                (com.fasterxml.jackson.databind.node.ObjectNode) root.with("analysisNarrative").withArray("sections").get(0);
+        section.put("body", body);
+        return objectMapper.writeValueAsString(root);
+    }
+
+    private String duplicateIndexContent() throws Exception {
+        com.fasterxml.jackson.databind.node.ObjectNode root =
+                (com.fasterxml.jackson.databind.node.ObjectNode) objectMapper.readTree(mockContent());
+        root.put("outcome", "ADVICE");
+        com.fasterxml.jackson.databind.node.ArrayNode indexes = root.putArray("indexCandidates");
+        com.fasterxml.jackson.databind.node.ObjectNode index = indexes.addObject();
+        index.put("tableName", "orders");
+        index.putArray("columnOrder").add("tenant_id");
+        index.put("ddl", "CREATE INDEX idx_orders_duplicate ON orders(tenant_id)");
+        index.put("benefit", "减少过滤扫描");
+        index.put("writeCost", "增加写放大");
+        index.put("risk", "需要检查重复索引");
+        index.put("validation", "比较执行计划");
+        index.put("confidence", "MEDIUM");
+        index.putArray("evidenceRefs").add("E_SCHEMA").add("E_INDEX").add("E_EXPLAIN");
+        return objectMapper.writeValueAsString(root);
+    }
+
+    private String contentWithLegacyRiskWarning() throws Exception {
+        com.fasterxml.jackson.databind.node.ObjectNode root =
+                (com.fasterxml.jackson.databind.node.ObjectNode) objectMapper.readTree(mockContent());
+        root.putArray("riskWarnings").add("预计优化后降至 10ms");
         return objectMapper.writeValueAsString(root);
     }
 

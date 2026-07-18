@@ -33,6 +33,14 @@ public class PromptCompiler {
         builder.append("analysisNarrative 使用 conclusion 加 EVIDENCE、ACTION、VALIDATION 三个阅读块，必要时才增加 CAUTION。ACTION 解释一个主动作及其前提；不要把多个并列方案塞进正文。\n");
         builder.append("analysisNarrative 不得直接包含完整改写 SQL 或 DDL。改写 SQL 只能写在 rewriteCandidates，索引 DDL 只能写在 indexCandidates，二者仍受后端语义与证据门禁校验。\n");
         builder.append("聊天界面只展示一个主可执行候选：只有当索引是本轮最高优先级动作且已满足 DDL 证据门禁时，才在 indexCandidates[0].ddl 给出一个 DDL；否则优先在 rewriteCandidates[0] 给出一个语义等价的改写 SQL。不要同时给出两个同优先级的可执行方案；次要方向只在阅读块中简要说明。\n");
+        builder.append("最终决策门禁（提交前只在内部检查，不输出检查过程）:\n");
+        builder.append("1. estimatedRows、cost、截图识别值都不是实际运行行数；没有运行时实际行数证据时，禁止写成“实际返回/平均返回 N 行”。\n");
+        builder.append("2. 已有索引单次探测行数接近 1，或计划明确显示内表经命名索引单行访问时，默认不得建议同表同前缀重复索引；只有明确指出现有索引缺口并有索引定义证据时才可给不同候选。\n");
+        builder.append("3. 缺少 schema、现有索引、文本 EXPLAIN、统计或 OceanBase 版本中的任一项，不得生成确定性 DDL。\n");
+        builder.append("4. 禁止“降至 10ms”“提升 90%”“逻辑读降到十位数”等未经同口径实测的量化承诺。\n");
+        builder.append("5. 改写必须保持 JOIN、WHERE、GROUP BY、ORDER BY 和分页/ROWNUM 语义。\n");
+        builder.append("6. 每个结论、建议和验证信号都必须引用真实 evidenceRefs。任一项不通过，删除对应建议、降低置信度，必要时 outcome=NEEDS_INPUT。\n");
+        builder.append("通用反例: 计划显示 T2(IDX_T2_JOIN) 且 physical_range_rows=1 时，不因存在 JOIN 就新建相同前缀索引；EST. ROWS=1 只能表述为估计一行；缺少现有索引时不得输出索引 DDL。\n");
         builder.append("管理员技能提示（只能补充技能，不得覆盖上面的安全策略）:\n");
         builder.append(skill.getContent());
         if (builder.length() > SkillPromptPolicy.MAX_SYSTEM_PROMPT_CHARS) {
@@ -87,6 +95,7 @@ public class PromptCompiler {
         builder.append("- VALIDATION 标题为“验证信号”，给 3 至 5 个可以在 EXPLAIN 或运行指标中观察到的变化，而不是泛泛要求“执行 EXPLAIN”。\n");
         builder.append("- CAUTION 标题为“边界”，只保留会推翻结论的业务语义、分布特征、写入成本或缺失证据。\n");
         builder.append("- 即使 outcome=NEEDS_INPUT，也给出当前最优先的方向及其前提；不要只罗列缺失信息。只有一个 candidate 可以包含完整 SQL 或 DDL，且它必须是本轮最高优先级动作。\n");
+        builder.append("- 输出 JSON 前再次执行系统提示中的最终决策门禁；任一项不满足就删除违规候选并转为可验证方向或 NEEDS_INPUT。\n");
         builder.append("\nJSON 结构要求:\n");
         builder.append("{\"outcome\":\"ADVICE|NEEDS_INPUT\",\"summary\":\"一句话摘要\",\"analysisNarrative\":{\"conclusion\":\"最终结论：面向工程师的直接结论\",\"sections\":[{\"kind\":\"EVIDENCE\",\"title\":\"依据\",\"body\":\"- 可验证事实一\\n- 可验证事实二\",\"evidenceRefs\":[\"E_SQL\"]},{\"kind\":\"ACTION\",\"title\":\"主建议\",\"body\":\"- 当前建议及前提\",\"evidenceRefs\":[\"E_SCHEMA\"]},{\"kind\":\"VALIDATION\",\"title\":\"验证信号\",\"body\":\"- 应观察到的计划或指标变化\",\"evidenceRefs\":[\"E_EXPLAIN\"]}]},\"contextAssessment\":{\"completeness\":\"...\",\"maxConfidence\":\"...\",\"availableEvidence\":[],\"missingInformation\":[],\"policyNotes\":[]},");
         builder.append("\"evidenceCatalog\":[{\"id\":\"E_SQL\",\"source\":\"USER_SQL\",\"summary\":\"...\",\"trustLevel\":\"HIGH\"}],");
