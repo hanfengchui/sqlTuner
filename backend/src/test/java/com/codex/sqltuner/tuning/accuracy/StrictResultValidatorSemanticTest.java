@@ -100,11 +100,12 @@ class StrictResultValidatorSemanticTest {
         result.getAnalysisNarrative().getSections().add(section("EVIDENCE", "补充依据一"));
         result.getAnalysisNarrative().getSections().add(section("ACTION", "补充依据二"));
         result.getAnalysisNarrative().getSections().add(section("VALIDATION", "补充依据三"));
+        result.getAnalysisNarrative().getSections().add(section("CAUTION", "补充依据四"));
 
         ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
 
         assertThat(outcome.isValid()).isFalse();
-        assertThat(outcome.summary()).contains("1 至 3 个段落");
+        assertThat(outcome.summary()).contains("1 至 4 个阅读块");
     }
 
     @Test

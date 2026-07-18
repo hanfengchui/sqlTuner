@@ -86,24 +86,24 @@ test("workspace renders concise validated advice inline in the conversation", as
             outcome: "ADVICE",
             summary: "当前查询可通过缩小投影列并验证排序访问路径来降低扫描成本。",
             analysisNarrative: {
-              conclusion: "先确认当前访问路径和索引覆盖情况；在没有计划证据前，不应直接把排序问题归因于索引缺失。",
+              conclusion: "最终结论：先确认当前访问路径和索引覆盖情况；在没有计划证据前，不应直接把排序问题归因于索引缺失。",
               sections: [
                 {
                   kind: "EVIDENCE",
                   title: "为什么先验证计划",
-                  body: "现有输入可以确认筛选和排序结构，但还不能确认实际扫描行数、排序算子或索引命中情况。",
+                  body: "- 现有输入可以确认筛选和排序结构。\n- 还不能确认实际扫描行数、排序算子或索引命中情况。",
                   evidenceRefs: ["E_EXPLAIN"]
                 },
                 {
                   kind: "ACTION",
                   title: "可先评估的改动",
-                  body: "若调用方不依赖全部列，可验证缩小投影列后的结果集和执行计划差异。",
+                  body: "- 若调用方不依赖全部列，可验证缩小投影列后的结果集和执行计划差异。",
                   evidenceRefs: ["E_EXPLAIN"]
                 },
                 {
                   kind: "VALIDATION",
                   title: "验证标准",
-                  body: "对比改动前后的 EXPLAIN，并确认排序访问路径和返回结果保持一致。",
+                  body: "- 对比改动前后的 EXPLAIN。\n- 确认排序访问路径和返回结果保持一致。",
                   evidenceRefs: ["E_EXPLAIN"]
                 }
               ]
@@ -111,7 +111,12 @@ test("workspace renders concise validated advice inline in the conversation", as
             evidenceCatalog: [{ id: "E_EXPLAIN", source: "USER_EXPLAIN", summary: "TABLE ACCESS BY INDEX", trustLevel: "HIGH" }],
             diagnoses: [{ title: "SELECT * 扩大回表成本", impact: "返回列过多会增加 I/O" }],
             rewriteCandidates: [{ sql: "select id, status, created_at from orders where status = ? order by created_at desc", change: "仅保留调用方实际使用的列" }],
-            indexCandidates: [],
+            indexCandidates: [{
+              tableName: "orders",
+              columnOrder: ["status", "created_at"],
+              ddl: "create index idx_orders_status_created on orders(status, created_at)",
+              benefit: "仅在确认当前索引不覆盖排序时评估"
+            }],
             validationPlan: [{ action: "执行 EXPLAIN", expectedSignal: "确认排序是否命中现有索引" }],
             missingInformation: [],
             safetyWarnings: [],
@@ -135,6 +140,8 @@ test("workspace renders concise validated advice inline in the conversation", as
   await expect(page.getByText("为什么先验证计划")).toBeVisible();
   await expect(page.getByText("验证标准")).toBeVisible();
   await expect(page.getByText("建议改写")).toBeVisible();
+  await expect(page.getByText("索引候选")).toHaveCount(0);
+  await expect(page.getByText(/create index idx_orders_status_created/)).toHaveCount(0);
   await expect(page.getByText("重点问题")).toHaveCount(0);
   await expect(page.getByText("SELECT * 扩大回表成本")).toHaveCount(0);
   await expect(page.getByRole("tab")).toHaveCount(0);

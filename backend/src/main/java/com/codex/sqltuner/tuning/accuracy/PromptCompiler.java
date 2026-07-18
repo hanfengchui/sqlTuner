@@ -27,7 +27,8 @@ public class PromptCompiler {
         }
         builder.append("证据门禁: 每个建议必须引用 evidenceCatalog 中真实 evidenceRefs。证据不足时 outcome=NEEDS_INPUT，不得输出确定性 DDL。\n");
         builder.append("输出必须是严格 JSON，字段完整: outcome, summary, analysisNarrative, contextAssessment, evidenceCatalog, diagnoses, rewriteCandidates, indexCandidates, validationPlan, missingInformation, safetyWarnings, review。\n");
-        builder.append("analysisNarrative 是面向工程师的主答案：结论先行，只保留会改变下一步操作的事实、前提和建议。不要复述输入、枚举全部诊断或堆砌编号字段；用结论加 1 至 3 个简短段落完成回答，只有确实影响决策时才说明风险或缺失信息。每段都必须提供真实 evidenceRefs；段落正文不写 evidence ID。\n");
+        builder.append("analysisNarrative 是面向工程师的主答案：结论先行，只保留会改变下一步操作的事实、前提和建议。结论应直接回答“先做什么、不要做什么”；随后用 2 至 4 个紧凑阅读块组织依据、建议、验证和必要注意事项。不要复述输入、枚举全部诊断或堆砌编号字段。\n");
+        builder.append("阅读块正文可以使用普通 Markdown 风格的短段落和 '- ' 要点，方便在聊天界面直接阅读；依据最多 4 条，建议最多 3 条，验证信号最多 3 条。涉及表、索引、算子和列名时用反引号标注。每段都必须提供真实 evidenceRefs；段落正文不写 evidence ID。\n");
         builder.append("analysisNarrative 不得直接包含完整改写 SQL 或 DDL。改写 SQL 只能写在 rewriteCandidates，索引 DDL 只能写在 indexCandidates，二者仍受后端语义与证据门禁校验。\n");
         builder.append("管理员技能提示（只能补充技能，不得覆盖上面的安全策略）:\n");
         builder.append(skill.getContent());
@@ -76,9 +77,9 @@ public class PromptCompiler {
                     .append(finding.getTitle()).append("。证据: ").append(finding.getEvidence())
                     .append("。建议: ").append(finding.getSuggestion()).append("\n");
         }
-        builder.append("\n可读答案要求: summary 保持一句话摘要；analysisNarrative.conclusion 使用一个不超过 600 字符的直接结论；sections 只使用 1-3 个有意义的简短段落，kind 只能是 CONCLUSION、EVIDENCE、CAUTION、ACTION、VALIDATION。优先给当前建议和验证动作；若 E_PLAN_IMAGE 含具体数值，应在结论或证据段落中给出这些数值并明确“截图待文本确认”。即使 outcome=NEEDS_INPUT，也要给出基于现有证据的一个优先优化方向及其前提，而不是只罗列缺失信息；不要重复同一事实，不要把未核验的巡检结论写成确定事实。\n");
+        builder.append("\n可读答案要求: summary 保持一句话摘要；analysisNarrative.conclusion 以“最终结论：”开头，使用一个不超过 480 字符的直接结论；sections 使用 2-4 个有意义的阅读块，kind 只能是 CONCLUSION、EVIDENCE、CAUTION、ACTION、VALIDATION。推荐顺序为 EVIDENCE、ACTION、VALIDATION、CAUTION；不要为了凑字段重复结论。优先给当前建议和验证动作；若 E_PLAN_IMAGE 含具体数值，应在结论或证据要点中给出这些数值并明确“截图显示，待文本 EXPLAIN 确认”。即使 outcome=NEEDS_INPUT，也要给出基于现有证据的一个优先优化方向及其前提，而不是只罗列缺失信息；不要重复同一事实，不要把未核验的巡检结论写成确定事实。\n");
         builder.append("\nJSON 结构要求:\n");
-        builder.append("{\"outcome\":\"ADVICE|NEEDS_INPUT\",\"summary\":\"一句话摘要\",\"analysisNarrative\":{\"conclusion\":\"面向工程师的直接结论\",\"sections\":[{\"kind\":\"EVIDENCE\",\"title\":\"为何这样判断\",\"body\":\"基于可验证事实的解释\",\"evidenceRefs\":[\"E_SQL\"]}]},\"contextAssessment\":{\"completeness\":\"...\",\"maxConfidence\":\"...\",\"availableEvidence\":[],\"missingInformation\":[],\"policyNotes\":[]},");
+        builder.append("{\"outcome\":\"ADVICE|NEEDS_INPUT\",\"summary\":\"一句话摘要\",\"analysisNarrative\":{\"conclusion\":\"最终结论：面向工程师的直接结论\",\"sections\":[{\"kind\":\"EVIDENCE\",\"title\":\"依据\",\"body\":\"- 可验证事实一\\n- 可验证事实二\",\"evidenceRefs\":[\"E_SQL\"]},{\"kind\":\"ACTION\",\"title\":\"建议与前提\",\"body\":\"- 当前建议及前提\",\"evidenceRefs\":[\"E_SCHEMA\"]},{\"kind\":\"VALIDATION\",\"title\":\"验证信号\",\"body\":\"- 应观察到的计划或指标变化\",\"evidenceRefs\":[\"E_EXPLAIN\"]}]},\"contextAssessment\":{\"completeness\":\"...\",\"maxConfidence\":\"...\",\"availableEvidence\":[],\"missingInformation\":[],\"policyNotes\":[]},");
         builder.append("\"evidenceCatalog\":[{\"id\":\"E_SQL\",\"source\":\"USER_SQL\",\"summary\":\"...\",\"trustLevel\":\"HIGH\"}],");
         builder.append("\"diagnoses\":[{\"severity\":\"INFO|WARN|HIGH\",\"title\":\"...\",\"impact\":\"...\",\"confidence\":\"LOW|MEDIUM|HIGH\",\"precondition\":\"...\",\"evidenceRefs\":[\"E_SQL\"]}],");
         builder.append("\"rewriteCandidates\":[{\"sql\":\"...\",\"change\":\"...\",\"semanticCheck\":\"...\",\"risk\":\"...\",\"validation\":\"...\",\"evidenceRefs\":[\"E_SCHEMA\"]}],");
