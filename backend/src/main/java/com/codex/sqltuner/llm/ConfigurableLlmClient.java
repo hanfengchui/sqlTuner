@@ -192,7 +192,7 @@ public class ConfigurableLlmClient implements LlmClient {
         }
         messages.add(system);
         messages.add(user);
-        if (!request.hasImages()) {
+        if (!request.hasImages() && request.isJsonOutput()) {
             // DashScope/OpenAI 兼容 JSON mode：提示词已明确包含 JSON，仍由后端做严格结构与证据校验。
             body.putObject("response_format").put("type", "json_object");
         }

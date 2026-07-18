@@ -7,6 +7,7 @@ public class LlmRequest {
     private String systemPrompt;
     private String userPrompt;
     private boolean deepAnalysis;
+    private boolean jsonOutput = true;
     private String modelOverride;
     private List<LlmRequestImage> images = new ArrayList<LlmRequestImage>();
 
@@ -49,6 +50,14 @@ public class LlmRequest {
 
     public void setDeepAnalysis(boolean deepAnalysis) {
         this.deepAnalysis = deepAnalysis;
+    }
+
+    public boolean isJsonOutput() {
+        return jsonOutput;
+    }
+
+    public void setJsonOutput(boolean jsonOutput) {
+        this.jsonOutput = jsonOutput;
     }
 
     public String getModelOverride() {

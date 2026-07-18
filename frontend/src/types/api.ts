@@ -233,6 +233,16 @@ export interface ModelConfigView {
   mockState?: "mock" | "ready" | "missing-key" | string;
 }
 
+export interface ModelPreviewResult {
+  success: boolean;
+  provider: string;
+  model: string;
+  mock: boolean;
+  elapsedMs: number;
+  output?: string;
+  message: string;
+}
+
 export interface ModelProviderOption {
   value: string;
   label: string;

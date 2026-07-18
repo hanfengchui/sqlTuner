@@ -1,7 +1,7 @@
-import { Bot, CheckCircle2, Clock3, KeyRound, Link2, PlugZap, RefreshCw, ServerCog, ShieldCheck } from "lucide-react";
+import { Bot, CheckCircle2, Clock3, KeyRound, Link2, Play, PlugZap, RefreshCw, ServerCog, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
-import type { ModelConfigView, ModelProviderOption, ModelTestResult, ReadinessView, RuntimeHealthView } from "../types/api";
+import type { ModelConfigView, ModelPreviewResult, ModelProviderOption, ModelTestResult, ReadinessView, RuntimeHealthView } from "../types/api";
 
 export function ModelConfigPage() {
   const [config, setConfig] = useState<ModelConfigView | undefined>();
@@ -19,6 +19,9 @@ export function ModelConfigPage() {
   const [testing, setTesting] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [previewPrompt, setPreviewPrompt] = useState("");
+  const [previewResult, setPreviewResult] = useState<ModelPreviewResult | undefined>();
+  const [previewing, setPreviewing] = useState(false);
 
   useEffect(() => {
     api.modelProviders().then(setProviders);
@@ -76,6 +79,28 @@ export function ModelConfigPage() {
       setMessage(result.success ? "连接测试成功" : "连接测试未通过");
     } finally {
       setTesting(false);
+    }
+  }
+
+  async function previewModel() {
+    if (!previewPrompt.trim()) {
+      setMessage("请输入需要试跑的内容");
+      return;
+    }
+    setPreviewing(true);
+    setPreviewResult(undefined);
+    setMessage("");
+    try {
+      const result = await api.previewModel({
+        userPrompt: previewPrompt,
+        deepAnalysis: true
+      });
+      setPreviewResult(result);
+      setMessage(result.success ? "模型试跑完成" : "模型试跑未通过");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "模型试跑失败");
+    } finally {
+      setPreviewing(false);
     }
   }
 
@@ -227,6 +252,33 @@ export function ModelConfigPage() {
               {testResult.sample && <code>{testResult.sample}</code>}
             </div>
           )}
+          <details className="prompt-preview">
+            <summary>模型试跑</summary>
+            <p>仅管理员可用。输入只会发送给当前模型，不写入会话、任务或审计历史；用于比较提示词和输出风格。</p>
+            <label>
+              <span>试跑内容</span>
+              <textarea
+                aria-label="模型试跑内容"
+                value={previewPrompt}
+                onChange={(event) => setPreviewPrompt(event.target.value)}
+                placeholder="粘贴 SQL、执行计划或巡检材料，直接查看模型的自由文本分析"
+              />
+            </label>
+            <div className="editor-actions">
+              <span>本次不启用 JSON 输出约束；不影响正式调优任务的安全策略。</span>
+              <button className="ghost-button" type="button" onClick={previewModel} disabled={previewing || !previewPrompt.trim()}>
+                <Play size={16} />
+                {previewing ? "试跑中..." : "运行试跑"}
+              </button>
+            </div>
+            {previewResult && (
+              <div className={previewResult.success ? "test-result ok" : "test-result warn"}>
+                <strong>{previewResult.message}</strong>
+                <span>{previewResult.provider} / {previewResult.model} · {previewResult.elapsedMs}ms · {previewResult.mock ? "mock" : "real"}</span>
+                {previewResult.output && <pre>{previewResult.output}</pre>}
+              </div>
+            )}
+          </details>
         </section>
       </div>
     </div>

@@ -105,4 +105,18 @@ class ConfigurableLlmClientMockFailTest {
         assertThat(body.path("response_format").path("type").asText()).isEqualTo("json_object");
         assertThat(body.path("temperature").asDouble()).isEqualTo(0.2d);
     }
+
+    @Test
+    void previewRequestCanUsePlainTextWithoutJsonObjectMode() {
+        LlmProperties properties = new LlmProperties();
+        properties.setProvider("dashscope");
+        ConfigurableLlmClient client = new ConfigurableLlmClient(properties, objectMapper);
+        LlmRequest request = new LlmRequest("给出直接分析", "分析这条 SQL", true);
+        request.setJsonOutput(false);
+
+        JsonNode body = client.buildChatRequestBody(request);
+
+        assertThat(body.has("response_format")).isFalse();
+        assertThat(body.path("temperature").asDouble()).isEqualTo(0.2d);
+    }
 }

@@ -52,6 +52,26 @@ class ModelConfigServiceTest {
         assertThat(health.isApiKeyConfigured()).isFalse();
     }
 
+    @Test
+    void previewUsesTheConfiguredModelWithoutPersistingATuningTask() {
+        LlmProperties properties = new LlmProperties();
+        ObjectMapper objectMapper = objectMapper();
+        JdbcTemplate jdbcTemplate = JdbcTestSupport.jdbcTemplate();
+        ModelConfigService service = service(jdbcTemplate, properties, objectMapper);
+        ModelPreviewRequest request = new ModelPreviewRequest();
+        request.setSystemPrompt("给出直接分析");
+        request.setUserPrompt("select * from orders where id = 1");
+        request.setDeepAnalysis(true);
+        Integer before = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM tuning_tasks", Integer.class);
+
+        ModelPreviewResult result = service.preview(request);
+
+        assertThat(result.isMock()).isTrue();
+        assertThat(result.isSuccess()).isFalse();
+        assertThat(result.getOutput()).contains("【示例·非真实模型输出】");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM tuning_tasks", Integer.class)).isEqualTo(before);
+    }
+
     private ModelConfigService service(JdbcTemplate jdbcTemplate, LlmProperties properties, ObjectMapper objectMapper) {
         return new ModelConfigService(
                 jdbcTemplate,

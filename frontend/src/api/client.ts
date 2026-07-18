@@ -5,6 +5,7 @@ import type {
   Message,
   ModelConfigView,
   ModelCatalogView,
+  ModelPreviewResult,
   ModelProviderOption,
   ModelTestResult,
   PlanImage,
@@ -178,6 +179,12 @@ export const api = {
   testModelConfig() {
     return request<ModelTestResult>("/api/admin/model-config/test", {
       method: "POST"
+    });
+  },
+  previewModel(input: { systemPrompt?: string; userPrompt: string; deepAnalysis: boolean }) {
+    return request<ModelPreviewResult>("/api/admin/model-config/preview", {
+      method: "POST",
+      body: JSON.stringify(input)
     });
   },
   discoverModels(input: { baseUrl?: string; apiKey?: string }) {

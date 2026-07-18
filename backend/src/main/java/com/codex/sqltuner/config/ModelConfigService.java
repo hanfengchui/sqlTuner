@@ -160,6 +160,35 @@ public class ModelConfigService {
         return result;
     }
 
+    /**
+     * Administrator-only prompt probe. It does not persist the supplied text or create a tuning task.
+     * Normal tuning requests continue to use the evidence-gated JSON contract.
+     */
+    public ModelPreviewResult preview(ModelPreviewRequest request) {
+        ModelPreviewResult result = new ModelPreviewResult();
+        long start = System.currentTimeMillis();
+        try {
+            String systemPrompt = hasText(request.getSystemPrompt())
+                    ? request.getSystemPrompt().trim()
+                    : "你是一位资深 OceanBase SQL 调优专家。";
+            LlmRequest previewRequest = new LlmRequest(systemPrompt, request.getUserPrompt().trim(), request.isDeepAnalysis());
+            previewRequest.setJsonOutput(false);
+            LlmResponse response = llmClient.analyze(previewRequest);
+            result.setSuccess(!response.isMock());
+            result.setProvider(response.getProvider());
+            result.setModel(response.getModel());
+            result.setMock(response.isMock());
+            result.setElapsedMs(response.getElapsedMs());
+            result.setOutput(response.getContent());
+            result.setMessage(response.isMock() ? "当前配置为 mock，未调用真实模型。" : "真实模型试跑完成。输入未写入任务历史。");
+        } catch (Exception e) {
+            result.setSuccess(false);
+            result.setElapsedMs(System.currentTimeMillis() - start);
+            result.setMessage("模型试跑失败: " + e.getMessage());
+        }
+        return result;
+    }
+
     private boolean hasApiKey(ModelConfigRecord record) {
         return record.getApiKey() != null && !record.getApiKey().trim().isEmpty();
     }

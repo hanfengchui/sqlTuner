@@ -260,6 +260,12 @@ input:focus, select:focus, textarea:focus, .search-input:focus-within { border-c
 .action-row { display: flex; gap: 8px; }
 .test-result { display: grid; }
 .test-result code { color: var(--text); white-space: pre-wrap; }
+.prompt-preview { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 12px; }
+.prompt-preview summary { cursor: pointer; color: var(--text-2); font-weight: 700; }
+.prompt-preview > p { margin: 8px 0 10px; font-size: 13px; }
+.prompt-preview label { display: grid; gap: 6px; color: var(--text-2); font-weight: 700; font-size: 13px; }
+.prompt-preview textarea { min-height: 156px; font-family: "JetBrains Mono", monospace; line-height: 1.55; }
+.prompt-preview .test-result pre { margin: 0; max-height: 560px; overflow: auto; white-space: pre-wrap; font-family: "JetBrains Mono", monospace; font-size: 12px; line-height: 1.6; color: var(--text); }
 
 .admin-list { display: grid; gap: 8px; align-content: start; }
 .skill-list-summary { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); padding: 12px; }

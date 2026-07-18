@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import javax.servlet.http.HttpSession;
+import javax.validation.Valid;
 import java.util.Arrays;
 import java.util.List;
 
@@ -60,6 +61,15 @@ public class AdminConfigController {
         CurrentUser.requireAdmin(session);
         log.info("testModelConfig param 入参: admin: true");
         return ApiResponse.ok(modelConfigService.testConnection());
+    }
+
+    @PostMapping("/model-config/preview")
+    public ApiResponse<ModelPreviewResult> previewModelConfig(@Valid @RequestBody ModelPreviewRequest request,
+                                                               HttpSession session) {
+        CurrentUser.requireAdmin(session);
+        log.info("previewModelConfig param 入参: promptLength: {}, deepAnalysis: {}",
+                request.getUserPrompt() == null ? 0 : request.getUserPrompt().length(), request.isDeepAnalysis());
+        return ApiResponse.ok(modelConfigService.preview(request));
     }
 
     @PostMapping("/model-config/models")
