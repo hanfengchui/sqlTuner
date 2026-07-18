@@ -20,8 +20,9 @@ external API.
 | 29 | Final production standard smoke with JSON mode | `DONE` in one request with 3 diagnoses, 2 index candidates and 8 durable artifacts; SSE snapshot and GET recovery passed. |
 | 30-32 | Lease-race production deep smoke | Initial analysis and reviewer ran, but a stale in-memory lease overwrote heartbeat renewals and allowed one duplicate analysis call. Optimistic locking prevented duplicate completion. State transitions were changed so they can extend or clear, but never shorten, a renewed lease. |
 | 33-34 | Final production deep smoke after lease correction | `DONE` on one worker attempt with `ADVICE` and reviewer verdict `REVISE`; 3 diagnoses, 1 index candidate and 9 durable artifacts. Queue returned to zero running/queued tasks. |
+| 35 | Supplied Oracle Top-N report checked with `qwen3.7-plus` | The model correctly identified the large driving-table scan, join/index direction and Top-N/Stopkey concern, but it was too confident that an index DDL could be executed without complete schema, current-index, plan, version and write-cost evidence. The free-form response was not the application's strict JSON shape. Verdict: useful only behind the evidence gate and strict validator. |
 
-Current usage: **34 / 60**. Remaining budget: **26**.
+Current usage: **35 / 60**. Remaining budget: **25**.
 
 Because the first nine diagnostic requests were real external calls, the
 original target of 40 standard tasks plus 10 deep tasks can no longer fit under

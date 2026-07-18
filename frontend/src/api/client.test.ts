@@ -80,4 +80,27 @@ describe("task EventSource protocol", () => {
     stop();
     expect(FakeEventSource.latest.close).toHaveBeenCalled();
   });
+
+  it("delivers safe model stream updates separately from task snapshots", () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const onTask = vi.fn();
+    const onModelStream = vi.fn();
+    const stop = api.streamTask(42, { onTask, onModelStream });
+
+    FakeEventSource.latest.emitPayload("model-stream", {
+      phase: "ANSWER",
+      draftText: "先确认驱动表访问路径。",
+      receivedChars: 128,
+      sequence: 2
+    });
+
+    expect(onModelStream).toHaveBeenCalledWith({
+      phase: "ANSWER",
+      draftText: "先确认驱动表访问路径。",
+      receivedChars: 128,
+      sequence: 2
+    });
+    expect(onTask).not.toHaveBeenCalled();
+    stop();
+  });
 });

@@ -834,6 +834,28 @@ input:focus, select:focus, textarea:focus, .search-input:focus-within { border-c
 }
 .assistant-progress p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 
+.assistant-streaming-draft {
+  max-width: 100%;
+  padding: 2px 0 8px;
+  color: var(--text-2);
+}
+
+.assistant-streaming-draft header {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.assistant-streaming-draft p {
+  margin: 11px 0 0;
+  white-space: pre-wrap;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.72;
+}
+
 .tuning-advice { padding: 0 0 8px; color: var(--text-2); }
 .advice-message-status { margin-bottom: 16px; padding: 0 0 12px; border-bottom: 1px solid var(--border); }
 .advice-state {
