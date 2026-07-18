@@ -11,6 +11,7 @@ public class LlmProperties {
     private String model = "qwen-plus";
     private String visionModel = "qwen3-vl-plus";
     private String apiKey;
+    private String reasoningEffort;
     private int timeoutMs = 30000;
     private int mockDelayMs;
 
@@ -52,6 +53,14 @@ public class LlmProperties {
 
     public void setApiKey(String apiKey) {
         this.apiKey = apiKey;
+    }
+
+    public String getReasoningEffort() {
+        return reasoningEffort;
+    }
+
+    public void setReasoningEffort(String reasoningEffort) {
+        this.reasoningEffort = reasoningEffort;
     }
 
     public int getTimeoutMs() {

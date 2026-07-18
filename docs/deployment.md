@@ -25,6 +25,7 @@ SQL_TUNER_DATA_KEY=base64-encoded-32-byte-key
 LLM_PROVIDER=dashscope
 LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 LLM_MODEL=qwen3.7-max
+LLM_REASONING_EFFORT=
 DASHSCOPE_API_KEY=optional-bootstrap-key
 SQL_TUNER_IMAGE_TAG=$(git rev-parse --short HEAD)
 ```

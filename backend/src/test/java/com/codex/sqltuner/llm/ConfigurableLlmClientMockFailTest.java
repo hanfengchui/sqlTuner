@@ -107,6 +107,39 @@ class ConfigurableLlmClientMockFailTest {
     }
 
     @Test
+    void configuredReasoningEffortIsSentOnlyForTextRequests() {
+        LlmProperties properties = new LlmProperties();
+        properties.setProvider("dashscope");
+        properties.setModel("grok-4.5");
+        properties.setVisionModel("grok-4.5");
+        properties.setReasoningEffort("high");
+        ConfigurableLlmClient client = new ConfigurableLlmClient(properties, objectMapper);
+
+        JsonNode textBody = client.buildChatRequestBody(new LlmRequest("system", "analyze", false));
+        JsonNode imageBody = client.buildChatRequestBody(new LlmRequest(
+                "system",
+                "extract plan",
+                false,
+                null,
+                Arrays.asList(new LlmRequestImage("data:image/png;base64,iVBORw0KGgo="))));
+
+        assertThat(textBody.path("reasoning_effort").asText()).isEqualTo("high");
+        assertThat(imageBody.has("reasoning_effort")).isFalse();
+    }
+
+    @Test
+    void unsupportedReasoningEffortFailsWithoutMakingARequest() {
+        LlmProperties properties = new LlmProperties();
+        properties.setProvider("dashscope");
+        properties.setReasoningEffort("turbo");
+        ConfigurableLlmClient client = new ConfigurableLlmClient(properties, objectMapper);
+
+        assertThatThrownBy(() -> client.buildChatRequestBody(new LlmRequest("system", "analyze", false)))
+                .isInstanceOf(LlmCallException.class)
+                .hasMessageContaining("LLM_REASONING_EFFORT");
+    }
+
+    @Test
     void previewRequestCanUsePlainTextWithoutJsonObjectMode() {
         LlmProperties properties = new LlmProperties();
         properties.setProvider("dashscope");

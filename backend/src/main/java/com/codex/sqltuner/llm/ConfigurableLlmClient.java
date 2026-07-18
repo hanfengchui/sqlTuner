@@ -21,6 +21,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
@@ -196,8 +197,23 @@ public class ConfigurableLlmClient implements LlmClient {
             // DashScope/OpenAI 兼容 JSON mode：提示词已明确包含 JSON，仍由后端做严格结构与证据校验。
             body.putObject("response_format").put("type", "json_object");
         }
+        String reasoningEffort = reasoningEffort();
+        if (!request.hasImages() && reasoningEffort != null) {
+            body.put("reasoning_effort", reasoningEffort);
+        }
         body.put("temperature", request.isDeepAnalysis() ? 0.2 : 0.1);
         return body;
+    }
+
+    private String reasoningEffort() {
+        if (properties.getReasoningEffort() == null || properties.getReasoningEffort().trim().isEmpty()) {
+            return null;
+        }
+        String value = properties.getReasoningEffort().trim().toLowerCase(Locale.ROOT);
+        if ("low".equals(value) || "medium".equals(value) || "high".equals(value) || "xhigh".equals(value)) {
+            return value;
+        }
+        throw new LlmCallException("LLM_REASONING_EFFORT 仅支持 low、medium、high 或 xhigh", null);
     }
 
     private String abbreviate(String value, int max) {

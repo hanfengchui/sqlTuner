@@ -51,6 +51,7 @@ LLM configuration uses environment variables:
 LLM_PROVIDER=mock
 LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 LLM_MODEL=qwen-plus
+LLM_REASONING_EFFORT=
 DASHSCOPE_API_KEY=replace-at-runtime
 SQL_TUNER_DB_URL='jdbc:mysql://mysql:3306/sql_tuner?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai'
 SQL_TUNER_DB_USERNAME=sql_tuner
@@ -66,6 +67,7 @@ Never commit real API keys.
 
 - Conversations, tuning tasks, artifacts, input images, skill versions, and editable model settings are stored transactionally in MySQL. Flyway applies the schema on startup.
 - Default model provider is `mock`; configure `DASHSCOPE_API_KEY` and `LLM_PROVIDER=dashscope` or another OpenAI-compatible provider for real model calls.
+- `LLM_REASONING_EFFORT` is optional. Set `low`, `medium`, `high`, or `xhigh` only when the configured OpenAI-compatible gateway supports Chat Completions `reasoning_effort`; leave it empty for ordinary providers.
 - Users choose OceanBase MySQL or OceanBase Oracle, then paste a single SQL statement or complete inspection-report text. Optional PNG/JPEG/WebP screenshots can be attached. The server extracts parseable SQL, EXPLAIN, statistics and metrics from a pasted report; DOC/DOCX/PDF import is intentionally unsupported.
 - The service does not connect to production databases, execute SQL, or apply DDL. Missing evidence lowers the confidence ceiling and blocks deterministic rewrite/index DDL output.
 - Admin users can edit provider, base URL, model name, timeout, and API Key from the Model Config page. API keys are encrypted with `SQL_TUNER_DATA_KEY` and are never returned to the frontend in plaintext.
