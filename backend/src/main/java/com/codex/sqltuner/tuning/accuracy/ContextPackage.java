@@ -13,6 +13,9 @@ public class ContextPackage {
     private boolean allowIndexDirection;
     private boolean allowIndexDdl;
     private boolean allowHighConfidence;
+    private String indexText = "";
+    private String explainText = "";
+    private String runtimeMetricsText = "";
 
     public ContextAssessment getAssessment() {
         return assessment;
@@ -60,5 +63,29 @@ public class ContextPackage {
 
     public void setAllowHighConfidence(boolean allowHighConfidence) {
         this.allowHighConfidence = allowHighConfidence;
+    }
+
+    public String getIndexText() {
+        return indexText;
+    }
+
+    public void setIndexText(String indexText) {
+        this.indexText = indexText == null ? "" : indexText;
+    }
+
+    public String getExplainText() {
+        return explainText;
+    }
+
+    public void setExplainText(String explainText) {
+        this.explainText = explainText == null ? "" : explainText;
+    }
+
+    public String getRuntimeMetricsText() {
+        return runtimeMetricsText;
+    }
+
+    public void setRuntimeMetricsText(String runtimeMetricsText) {
+        this.runtimeMetricsText = runtimeMetricsText == null ? "" : runtimeMetricsText;
     }
 }

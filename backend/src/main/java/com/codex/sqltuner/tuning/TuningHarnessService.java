@@ -51,6 +51,11 @@ public class TuningHarnessService {
     private static final Logger log = LoggerFactory.getLogger(TuningHarnessService.class);
     private static final long STREAM_PROGRESS_MIN_INTERVAL_NANOS = 300L * 1000L * 1000L;
     private static final int STREAM_PROGRESS_CHAR_STEP = 1024;
+    private static final java.util.Set<String> STRICT_RESULT_FIELDS =
+            java.util.Collections.unmodifiableSet(new java.util.HashSet<String>(java.util.Arrays.asList(
+                    "outcome", "summary", "analysisNarrative", "contextAssessment", "evidenceCatalog",
+                    "diagnoses", "rewriteCandidates", "indexCandidates", "validationPlan",
+                    "missingInformation", "safetyWarnings", "review")));
     private static final String VISION_SYSTEM_PROMPT =
             "你是截图 OCR/视觉事实抽取器，只抽取图片中可见文字和执行计划事实。";
     private static final String VISION_EXTRACTION_PROMPT =
@@ -738,6 +743,12 @@ public class TuningHarnessService {
     private void validateStrictJsonShape(JsonNode root) {
         if (root == null || !root.isObject()) {
             throw new IllegalArgumentException("根节点必须是 JSON 对象");
+        }
+        java.util.Iterator<String> fieldNames = root.fieldNames();
+        while (fieldNames.hasNext()) {
+            if (!STRICT_RESULT_FIELDS.contains(fieldNames.next())) {
+                throw new IllegalArgumentException("模型结果包含不支持的顶层字段");
+            }
         }
         requireText(root, "outcome", "root");
         requireText(root, "summary", "root");
