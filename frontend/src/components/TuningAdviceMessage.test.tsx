@@ -205,10 +205,60 @@ describe("TuningAdviceMessage", () => {
     expect(screen.queryByText("这段结论不应在顶部结论之后再显示。")).not.toBeInTheDocument();
     expect(screen.getByText(/create index idx_orders_tenant_created/)).toBeInTheDocument();
     expect(screen.getByText("已知 SQL 包含筛选和排序。")).toBeInTheDocument();
+    expect(screen.queryByText("索引候选")).not.toBeInTheDocument();
+    expect(screen.queryByText("仅在已验证前提下减少排序")).not.toBeInTheDocument();
     expect(screen.queryByText("重点问题")).not.toBeInTheDocument();
     expect(screen.queryByText("旧诊断不应重复")).not.toBeInTheDocument();
     expect(screen.queryByText("E_SQL")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "查看完整依据" })).not.toBeInTheDocument();
+  });
+
+  it("keeps a non-executable index direction visible after the narrative action", () => {
+    render(
+      <TuningAdviceMessage
+        progressive={false}
+        task={{
+          ...baseTask,
+          result: {
+            outcome: "ADVICE",
+            summary: "先确认索引方向。",
+            analysisNarrative: {
+              conclusion: "最终结论：先验证现有索引覆盖，再决定是否创建索引。",
+              sections: [{
+                kind: "ACTION",
+                title: "主建议",
+                body: "先核对现有索引，避免创建重复索引。",
+                evidenceRefs: ["E_SQL"]
+              }]
+            },
+            evidenceCatalog: [{ id: "E_SQL", source: "USER_SQL", summary: "用户提供的 SQL", trustLevel: "HIGH" }],
+            diagnoses: [],
+            rewriteCandidates: [],
+            indexCandidates: [{
+              tableName: "orders",
+              columnOrder: ["tenant_id", "created_at"],
+              benefit: "确认排序列是否已被现有复合索引覆盖"
+            }],
+            validationPlan: [],
+            missingInformation: [],
+            safetyWarnings: [],
+            findings: [],
+            rewriteSql: "",
+            indexSuggestions: [],
+            validationSteps: [],
+            riskWarnings: [],
+            needMoreInfo: [],
+            rawModelOutput: "",
+            mockModel: false
+          }
+        }}
+      />
+    );
+
+    expect(screen.getByText("主建议")).toBeInTheDocument();
+    expect(screen.getByText("索引候选")).toBeInTheDocument();
+    expect(screen.getByText("orders (tenant_id, created_at)")).toBeInTheDocument();
+    expect(screen.getByText("确认排序列是否已被现有复合索引覆盖")).toBeInTheDocument();
   });
 
   it("streams only task stages while validation is still in progress", () => {

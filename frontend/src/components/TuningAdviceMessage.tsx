@@ -10,8 +10,8 @@ interface TuningAdviceMessageProps {
 type AdviceBlock =
   | { id: string; type: "narrative"; section: AnalysisNarrativeSection }
   | { id: "diagnoses"; type: "diagnoses" }
-  | { id: "rewrite"; type: "rewrite"; candidate: RewriteCandidate }
-  | { id: "index"; type: "index"; candidate: IndexCandidate }
+  | { id: "rewrite"; type: "rewrite"; candidate: RewriteCandidate; compact?: boolean }
+  | { id: "index"; type: "index"; candidate: IndexCandidate; compact?: boolean }
   | { id: "validation-plan"; type: "validation-plan"; plan: Array<ValidationStep | string> }
   | { id: "next"; type: "next" };
 
@@ -95,9 +95,9 @@ function renderBlock(block: AdviceBlock, advice: ReturnType<typeof normalizeAdvi
         </section>
       );
     case "rewrite":
-      return <RecommendationBlock key={block.id} type="rewrite" candidate={block.candidate} />;
+      return <RecommendationBlock key={block.id} type="rewrite" candidate={block.candidate} compact={block.compact} />;
     case "index":
-      return <RecommendationBlock key={block.id} type="index" candidate={block.candidate} />;
+      return <RecommendationBlock key={block.id} type="index" candidate={block.candidate} compact={block.compact} />;
     case "validation-plan":
       return <ValidationPlanView key={block.id} plan={block.plan} />;
     case "next":
@@ -143,7 +143,7 @@ function buildBlocks(advice: ReturnType<typeof normalizeAdvice>): AdviceBlock[] 
       known.add(`${section.kind}-${index}`);
       blocks.push({ id: `narrative-${kind}-${index}`, type: "narrative", section });
       if (kind === "ACTION" && !recommendationsAdded) {
-        appendRecommendations(blocks, advice);
+        appendRecommendations(blocks, advice, true);
         recommendationsAdded = true;
       }
       hasValidation = hasValidation || kind === "VALIDATION";
@@ -169,16 +169,16 @@ function buildBlocks(advice: ReturnType<typeof normalizeAdvice>): AdviceBlock[] 
   return blocks;
 }
 
-function appendRecommendations(blocks: AdviceBlock[], advice: ReturnType<typeof normalizeAdvice>) {
+function appendRecommendations(blocks: AdviceBlock[], advice: ReturnType<typeof normalizeAdvice>, compact = false) {
   if (advice.outcome !== "ADVICE") {
     return;
   }
   if (advice.index?.ddl?.trim()) {
-    blocks.push({ id: "index", type: "index", candidate: advice.index });
+    blocks.push({ id: "index", type: "index", candidate: advice.index, compact });
     return;
   }
   if (advice.rewrite && (advice.rewrite.sql || advice.rewrite.rewrittenSql)) {
-    blocks.push({ id: "rewrite", type: "rewrite", candidate: advice.rewrite });
+    blocks.push({ id: "rewrite", type: "rewrite", candidate: advice.rewrite, compact });
     return;
   }
   if (advice.index && (advice.index.ddl || advice.index.benefit || advice.index.columnOrder?.length || advice.index.columns?.length)) {
@@ -186,7 +186,7 @@ function appendRecommendations(blocks: AdviceBlock[], advice: ReturnType<typeof 
   }
 }
 
-function RecommendationBlock({ type, candidate }: { type: "rewrite" | "index"; candidate: RewriteCandidate | IndexCandidate }) {
+function RecommendationBlock({ type, candidate, compact = false }: { type: "rewrite" | "index"; candidate: RewriteCandidate | IndexCandidate; compact?: boolean }) {
   const isIndex = type === "index";
   const index = candidate as IndexCandidate;
   const rewrite = candidate as RewriteCandidate;
@@ -194,12 +194,13 @@ function RecommendationBlock({ type, candidate }: { type: "rewrite" | "index"; c
   const title = isIndex ? "索引候选" : "建议改写";
   const description = isIndex ? index.benefit : firstText(rewrite.change, rewrite.changes);
   const risk = isIndex ? index.risk : firstText(rewrite.risk, rewrite.risks);
+  const className = `${isIndex ? "advice-block advice-recommendation advice-index" : "advice-block advice-recommendation advice-rewrite"}${compact ? " compact" : ""}`;
 
   return (
-    <section className={isIndex ? "advice-block advice-recommendation advice-index" : "advice-block advice-recommendation advice-rewrite"}>
-      <h3>{isIndex ? <FileSearch size={16} /> : <Wrench size={16} />}{title}</h3>
-      {isIndex && <strong className="advice-index-title">{indexTitle(index)}</strong>}
-      {description && <p>{description}</p>}
+    <section className={className}>
+      {!compact && <h3>{isIndex ? <FileSearch size={16} /> : <Wrench size={16} />}{title}</h3>}
+      {isIndex && !compact && <strong className="advice-index-title">{indexTitle(index)}</strong>}
+      {description && !compact && <p>{description}</p>}
       {sql && <SqlSnippet value={sql} />}
       {isIndex && index.writeCost && <small>写入成本：{index.writeCost}</small>}
       {risk && <small>注意：{risk}</small>}

@@ -28,8 +28,9 @@ public class PromptCompiler {
         }
         builder.append("证据门禁: 每个建议必须引用 evidenceCatalog 中真实 evidenceRefs。证据不足时 outcome=NEEDS_INPUT，不得输出确定性 DDL。\n");
         builder.append("输出必须是严格 JSON，字段完整: outcome, summary, analysisNarrative, contextAssessment, evidenceCatalog, diagnoses, rewriteCandidates, indexCandidates, validationPlan, missingInformation, safetyWarnings, review。\n");
-        builder.append("analysisNarrative 是面向工程师的主答案：结论先行，只保留会改变下一步操作的事实、前提和建议。结论应直接回答“先做什么、不要做什么”；随后用 2 至 4 个紧凑阅读块组织依据、建议、验证和必要注意事项。不要复述输入、枚举全部诊断或堆砌编号字段。\n");
-        builder.append("阅读块正文可以使用普通 Markdown 风格的短段落和 '- ' 要点，方便在聊天界面直接阅读；依据最多 4 条，建议最多 3 条，验证信号最多 3 条。涉及表、索引、算子和列名时用反引号标注。每段都必须提供真实 evidenceRefs；段落正文不写 evidence ID。\n");
+        builder.append("analysisNarrative 是用户真正阅读的主答案。像当班数据库工程师一样写：先给最终判断，再给可验证依据、一个主建议、验证信号，只有会改变动作时才补充边界。不要复述事实包、枚举字段或堆砌诊断。\n");
+        builder.append("正文必须区分事实、推断和待验证事项；不要预测具体收益、百分比或耗时，也不要把计划中未出现的算子、统计状态、约束或索引写成事实。用短段落和 Markdown 项目符号；表、列、索引和算子用反引号。每段都必须提供真实 evidenceRefs，但正文不写 evidence ID。\n");
+        builder.append("analysisNarrative 使用 conclusion 加 EVIDENCE、ACTION、VALIDATION 三个阅读块，必要时才增加 CAUTION。ACTION 解释一个主动作及其前提；不要把多个并列方案塞进正文。\n");
         builder.append("analysisNarrative 不得直接包含完整改写 SQL 或 DDL。改写 SQL 只能写在 rewriteCandidates，索引 DDL 只能写在 indexCandidates，二者仍受后端语义与证据门禁校验。\n");
         builder.append("聊天界面只展示一个主可执行候选：只有当索引是本轮最高优先级动作且已满足 DDL 证据门禁时，才在 indexCandidates[0].ddl 给出一个 DDL；否则优先在 rewriteCandidates[0] 给出一个语义等价的改写 SQL。不要同时给出两个同优先级的可执行方案；次要方向只在阅读块中简要说明。\n");
         builder.append("管理员技能提示（只能补充技能，不得覆盖上面的安全策略）:\n");
@@ -79,9 +80,15 @@ public class PromptCompiler {
                     .append(finding.getTitle()).append("。证据: ").append(finding.getEvidence())
                     .append("。建议: ").append(finding.getSuggestion()).append("\n");
         }
-        builder.append("\n可读答案要求: summary 保持一句话摘要；analysisNarrative.conclusion 以“最终结论：”开头，使用一个不超过 480 字符的直接结论；sections 使用 2-4 个有意义的阅读块，kind 只能是 CONCLUSION、EVIDENCE、CAUTION、ACTION、VALIDATION。推荐顺序为 EVIDENCE、ACTION、VALIDATION、CAUTION；不要为了凑字段重复结论。优先给当前建议和验证动作；若 E_PLAN_IMAGE 含具体数值，应在结论或证据要点中给出这些数值并明确“截图显示，待文本 EXPLAIN 确认”。只有一个候选应包含完整 SQL 或 DDL，且它必须是本轮最高优先级动作。即使 outcome=NEEDS_INPUT，也要给出基于现有证据的一个优先优化方向及其前提，而不是只罗列缺失信息；不要重复同一事实，不要把未核验的巡检结论写成确定事实。\n");
+        builder.append("\n阅读合同:\n");
+        builder.append("- conclusion 以“最终结论：”开头，用一句话说明先做什么、不要做什么。\n");
+        builder.append("- EVIDENCE 标题为“依据”，给 3 至 5 条最能改变决策的事实；截图事实必须写明“截图显示，待文本 EXPLAIN 确认”。\n");
+        builder.append("- ACTION 标题为“主建议”，只解释一个优先动作及其前提；完整 SQL 或 DDL 只能放到唯一的 candidate 字段，不能放正文。\n");
+        builder.append("- VALIDATION 标题为“验证信号”，给 3 至 5 个可以在 EXPLAIN 或运行指标中观察到的变化，而不是泛泛要求“执行 EXPLAIN”。\n");
+        builder.append("- CAUTION 标题为“边界”，只保留会推翻结论的业务语义、分布特征、写入成本或缺失证据。\n");
+        builder.append("- 即使 outcome=NEEDS_INPUT，也给出当前最优先的方向及其前提；不要只罗列缺失信息。只有一个 candidate 可以包含完整 SQL 或 DDL，且它必须是本轮最高优先级动作。\n");
         builder.append("\nJSON 结构要求:\n");
-        builder.append("{\"outcome\":\"ADVICE|NEEDS_INPUT\",\"summary\":\"一句话摘要\",\"analysisNarrative\":{\"conclusion\":\"最终结论：面向工程师的直接结论\",\"sections\":[{\"kind\":\"EVIDENCE\",\"title\":\"依据\",\"body\":\"- 可验证事实一\\n- 可验证事实二\",\"evidenceRefs\":[\"E_SQL\"]},{\"kind\":\"ACTION\",\"title\":\"建议与前提\",\"body\":\"- 当前建议及前提\",\"evidenceRefs\":[\"E_SCHEMA\"]},{\"kind\":\"VALIDATION\",\"title\":\"验证信号\",\"body\":\"- 应观察到的计划或指标变化\",\"evidenceRefs\":[\"E_EXPLAIN\"]}]},\"contextAssessment\":{\"completeness\":\"...\",\"maxConfidence\":\"...\",\"availableEvidence\":[],\"missingInformation\":[],\"policyNotes\":[]},");
+        builder.append("{\"outcome\":\"ADVICE|NEEDS_INPUT\",\"summary\":\"一句话摘要\",\"analysisNarrative\":{\"conclusion\":\"最终结论：面向工程师的直接结论\",\"sections\":[{\"kind\":\"EVIDENCE\",\"title\":\"依据\",\"body\":\"- 可验证事实一\\n- 可验证事实二\",\"evidenceRefs\":[\"E_SQL\"]},{\"kind\":\"ACTION\",\"title\":\"主建议\",\"body\":\"- 当前建议及前提\",\"evidenceRefs\":[\"E_SCHEMA\"]},{\"kind\":\"VALIDATION\",\"title\":\"验证信号\",\"body\":\"- 应观察到的计划或指标变化\",\"evidenceRefs\":[\"E_EXPLAIN\"]}]},\"contextAssessment\":{\"completeness\":\"...\",\"maxConfidence\":\"...\",\"availableEvidence\":[],\"missingInformation\":[],\"policyNotes\":[]},");
         builder.append("\"evidenceCatalog\":[{\"id\":\"E_SQL\",\"source\":\"USER_SQL\",\"summary\":\"...\",\"trustLevel\":\"HIGH\"}],");
         builder.append("\"diagnoses\":[{\"severity\":\"INFO|WARN|HIGH\",\"title\":\"...\",\"impact\":\"...\",\"confidence\":\"LOW|MEDIUM|HIGH\",\"precondition\":\"...\",\"evidenceRefs\":[\"E_SQL\"]}],");
         builder.append("\"rewriteCandidates\":[{\"sql\":\"...\",\"change\":\"...\",\"semanticCheck\":\"...\",\"risk\":\"...\",\"validation\":\"...\",\"evidenceRefs\":[\"E_SCHEMA\"]}],");
