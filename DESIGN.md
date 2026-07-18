@@ -28,7 +28,7 @@
 
 ## Design principles
 - Principle 1: One linear reading path. A user question, a trustworthy in-progress state, and a concise answer must fit the center column without switching context.
-- Principle 2: Validation before reveal. Live status may stream, but raw model output is never shown before strict validation succeeds.
+- Principle 2: Validation before reveal. The upstream model is genuinely streamed, but the live draft is a server-side projection limited to `analysisNarrative` prose. Reasoning traces, raw JSON, rewrite SQL and index DDL are never streamed; the final answer replaces the draft only after strict validation succeeds.
 - Principle 3: Input should accept the form people already have. Full patrol-report text is parsed server-side; an attachment is a compact screenshot chip, not a large evidence form.
 - Principle 4: Disclosure earns its place. Evidence IDs, raw artifacts, exhaustive preconditions and duplicate risk text are hidden from the routine chat response.
 - Tradeoffs: structured detail remains stored in task APIs for auditability, but no separate audit screen competes with the conversational reading path.
@@ -61,7 +61,7 @@
 - Touch/hover differences: desktop pointer and keyboard behavior only; no touch-specific interaction path is maintained.
 
 ## Interaction states
-- Loading: status is an assistant message with the current task stage; it does not reveal unvalidated tokens.
+- Loading: status is an assistant message with the current task stage. When available it shows a clearly marked “待校验” narrative draft projected by the server; it never exposes reasoning traces, raw JSON, rewrite SQL or index DDL.
 - Empty: the workspace centers the compact composer and asks for a SQL or full diagnostic-report text block, without marketing copy.
 - Error: inline assistant message states that the task failed and keeps the submitted text available in the conversation.
 - Success: once strict validation is complete, the assistant answer reveals a direct conclusion followed by a short evidence-led narrative. It may then show one validated rewrite or index direction, with a validation step only when that changes the engineer's next action. Legacy diagnosis lists remain a fallback for historical tasks only.
@@ -77,7 +77,7 @@
 ## Implementation constraints
 - Framework/styling system: React + Vite, `react-router-dom`, selected Radix Tooltip primitive and lucide icons. The chat composer is a native, accessible textarea rather than a code-editor workbench.
 - Design-token constraints: theme variables in CSS; ordinary radius 6-8px; no decorative gradients/orbs.
-- Performance constraints: frontend is static; model/API work stays backend; long pasted SQL/report text is bounded by the API contract and displayed in a scrollable monospace message; input images are bounded, persisted outside task JSON, and processed by a bounded vision call before the text analysis.
+- Performance constraints: frontend is static; model/API work stays backend; long pasted SQL/report text is bounded by the API contract and displayed in a scrollable monospace message; input images are bounded, persisted outside task JSON, and processed by a bounded vision call before the text analysis. Model progress events are coalesced while no safe narrative is available so reasoning-heavy models cannot flood SSE clients.
 - Compatibility constraints: preserve existing API response wrapper and legacy result fields while reading new structured fields when present; unsafe requests load `/api/auth/csrf` and send the returned CSRF header token; model gateways use OpenAI-compatible `/chat/completions` and optional `/models`, while manual model IDs remain available for gateways that do not expose catalogs; readiness telemetry comes from `/api/health/ready` (`status`, `mysql`, `queued`, `running`) and model runtime telemetry from `/api/admin/health` (`provider`, `model`, `mockState`, `apiKeyConfigured`).
 - Test/screenshot expectations: Vitest + Testing Library for composer attachment handling, concise validated advice rendering and task-stage behavior; Playwright desktop projects at 1366, 1440 and 1920 for login, chat composer, conversation result, fixed rail/history and admin flows. Visual artifacts live under `.omx/artifacts/visual-ralph/codex-chat/`. No tablet/mobile projects or responsive acceptance criteria.
 

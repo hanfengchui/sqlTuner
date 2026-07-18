@@ -24,11 +24,19 @@ SQL_TUNER_USER_PASSWORD=change-me-strong-user
 SQL_TUNER_DATA_KEY=base64-encoded-32-byte-key
 LLM_PROVIDER=dashscope
 LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-LLM_MODEL=qwen3.7-max
+LLM_MODEL=qwen3.7-plus
 LLM_REASONING_EFFORT=
 DASHSCOPE_API_KEY=optional-bootstrap-key
 SQL_TUNER_IMAGE_TAG=$(git rev-parse --short HEAD)
 ```
+
+For the routine workload, `qwen3.7-plus` is the recommended cost/quality default.
+Reserve `qwen3.7-max` for temporary deep-review or difficult-case evaluation;
+plan screenshots should use `qwen3-vl-plus` through the separate vision model
+setting. The application streams OpenAI-compatible text calls with
+`stream=true`, but only a filtered `analysisNarrative` draft reaches browsers;
+reasoning traces, raw JSON, rewrite SQL and index DDL remain hidden until the
+final result passes strict validation.
 
 Empty databases require strong admin/user passwords. Existing model settings and
 encrypted API keys should be migrated from the legacy JSON state before serving

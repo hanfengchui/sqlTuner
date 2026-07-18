@@ -193,6 +193,14 @@ export interface HarnessArtifact {
   createdAt: string;
 }
 
+export interface ModelStreamUpdate {
+  phase: "THINKING" | "ANSWER" | "VERIFYING" | string;
+  draftText?: string;
+  receivedChars: number;
+  sequence: number;
+  attempt?: number;
+}
+
 export interface SqlTuningTask {
   id: number;
   userId: number;
@@ -214,6 +222,7 @@ export interface SqlTuningTask {
   allowedActions?: string[];
   queuePosition?: number;
   version?: number;
+  attemptCount?: number;
   outcome?: AdviceOutcome;
   contextAssessment?: ContextAssessment;
   status: TaskStatus;

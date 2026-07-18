@@ -17,7 +17,7 @@ export function ChatWorkspacePage({ activeConversationId, activeTask, onTaskCrea
   const [messages, setMessages] = useState<Message[]>([]);
   const [tasksById, setTasksById] = useState<Record<number, SqlTuningTask>>({});
   const [error, setError] = useState("");
-  const { task, error: taskError } = useTaskUpdates(taskSeed?.id, {
+  const { task, error: taskError, modelStream } = useTaskUpdates(taskSeed?.id, {
     initialTask: taskSeed,
     onTerminal: (terminalTask) => {
       api.messages(terminalTask.conversationId)
@@ -96,7 +96,7 @@ export function ChatWorkspacePage({ activeConversationId, activeTask, onTaskCrea
   return (
     <div className="workspace chat-workspace">
       <div className="chat-column">
-        <ConversationStream messages={messages} tasksById={tasksById} pendingTask={task} />
+        <ConversationStream messages={messages} tasksById={tasksById} pendingTask={task} pendingStream={modelStream} />
         {(error || taskError) && <div className="form-error chat-error">{error || taskError}</div>}
         <div className="composer-shell">
           <SqlInputPanel loading={submitting} onSubmit={submit} />

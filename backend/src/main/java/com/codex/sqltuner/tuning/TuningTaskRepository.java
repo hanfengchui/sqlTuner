@@ -224,7 +224,7 @@ public class TuningTaskRepository {
         return task;
     }
 
-    public void requeueExpiredLeases() {
+    public List<SqlTuningTask> requeueExpiredLeases() {
         LocalDateTime now = LocalDateTime.now();
         List<SqlTuningTask> expired = jdbcTemplate.query(
                 "SELECT * FROM tuning_tasks WHERE status NOT IN ('QUEUED','DONE','FAILED') AND lease_until < ?",
@@ -237,6 +237,7 @@ public class TuningTaskRepository {
             task.setNextAttemptAt(now);
             update(task);
         }
+        return expired;
     }
 
     public void heartbeat(Long taskId, String leaseOwner) {

@@ -4,7 +4,7 @@ import { api } from "../api/client";
 import type { SqlTuningTask, TaskStatus } from "../types/api";
 import { useTaskUpdates } from "./useTaskUpdates";
 
-function task(status: TaskStatus, version: number): SqlTuningTask {
+function task(status: TaskStatus, version: number, attemptCount = 0): SqlTuningTask {
   return {
     id: 42,
     userId: 1,
@@ -15,6 +15,7 @@ function task(status: TaskStatus, version: number): SqlTuningTask {
     status,
     statusMessage: status,
     version,
+    attemptCount,
     ruleFindings: [],
     artifacts: [],
     createdAt: "2026-07-17T00:00:00",
@@ -49,12 +50,54 @@ describe("useTaskUpdates", () => {
     }));
     expect(result.current.task?.artifacts).toHaveLength(1);
 
+    act(() => handlers?.onModelStream?.({
+      phase: "THINKING",
+      receivedChars: 64,
+      sequence: 1
+    }));
+    expect(result.current.modelStream).toEqual(expect.objectContaining({ sequence: 1, receivedChars: 64 }));
+    act(() => handlers?.onModelStream?.({
+      phase: "ANSWER",
+      draftText: "过期草稿",
+      receivedChars: 32,
+      sequence: 0
+    }));
+    expect(result.current.modelStream?.sequence).toBe(1);
+
+    act(() => handlers?.onTask(task("QUEUED", 3, 1)));
+    expect(result.current.modelStream).toBeUndefined();
+    act(() => handlers?.onTask(task("RECEIVED", 4, 2)));
+    act(() => handlers?.onModelStream?.({
+      phase: "ANSWER",
+      draftText: "新一轮草稿",
+      receivedChars: 96,
+      sequence: 2,
+      attempt: 2
+    }));
+    expect(result.current.modelStream?.draftText).toBe("新一轮草稿");
+    act(() => handlers?.onModelStream?.({
+      phase: "RESET",
+      receivedChars: 0,
+      sequence: 3,
+      attempt: 2
+    }));
+    expect(result.current.modelStream).toBeUndefined();
+    act(() => handlers?.onModelStream?.({
+      phase: "ANSWER",
+      draftText: "旧 attempt 草稿",
+      receivedChars: 120,
+      sequence: 99,
+      attempt: 1
+    }));
+    expect(result.current.modelStream).toBeUndefined();
+
     act(() => handlers?.onError?.());
     await waitFor(() => expect(taskRequest.mock.calls.length).toBeGreaterThan(1));
 
     act(() => handlers?.onOpen?.());
-    act(() => handlers?.onTask(task("DONE", 3)));
+    act(() => handlers?.onTask(task("DONE", 5)));
     expect(result.current.task?.status).toBe("DONE");
+    expect(result.current.modelStream).toBeUndefined();
     expect(close).toHaveBeenCalled();
   });
 });

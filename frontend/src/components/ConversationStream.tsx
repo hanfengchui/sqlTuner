@@ -1,15 +1,16 @@
 import { Bot } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
 import { TaskProgressMessage, TuningAdviceMessage } from "./TuningAdviceMessage";
-import type { Message, SqlTuningTask } from "../types/api";
+import type { Message, ModelStreamUpdate, SqlTuningTask } from "../types/api";
 
 interface ConversationStreamProps {
   messages: Message[];
   tasksById: Record<number, SqlTuningTask>;
   pendingTask?: SqlTuningTask;
+  pendingStream?: ModelStreamUpdate;
 }
 
-export function ConversationStream({ messages, tasksById, pendingTask }: ConversationStreamProps) {
+export function ConversationStream({ messages, tasksById, pendingTask, pendingStream }: ConversationStreamProps) {
   const streamRef = useRef<HTMLElement>(null);
   const stickToLatestRef = useRef(true);
   const hasAssistantForPending = pendingTask
@@ -33,6 +34,12 @@ export function ConversationStream({ messages, tasksById, pendingTask }: Convers
     stickToLatestRef.current = true;
     scrollToLatest();
   }, [messages.length, pendingTask?.id, pendingTask?.status, pendingTask?.version, scrollToLatest]);
+
+  useEffect(() => {
+    if (stickToLatestRef.current) {
+      window.requestAnimationFrame(scrollToLatest);
+    }
+  }, [pendingStream?.sequence, scrollToLatest]);
 
   if (messages.length === 0 && !pendingTask) {
     return (
@@ -58,14 +65,15 @@ export function ConversationStream({ messages, tasksById, pendingTask }: Convers
           key={message.id}
           message={message}
           task={message.taskId ? tasksById[message.taskId] : undefined}
-          progressive={Boolean(pendingTask && message.taskId === pendingTask.id)}
           onContentChange={followProgressiveContent}
         />
       ))}
       {pendingTask && !hasAssistantForPending && (
         <article className="message-row assistant">
           <div className="assistant-message-body">
-            {pendingTask.result ? <TuningAdviceMessage task={pendingTask} onContentChange={followProgressiveContent} /> : <TaskProgressMessage task={pendingTask} />}
+            {pendingTask.result
+              ? <TuningAdviceMessage task={pendingTask} onContentChange={followProgressiveContent} />
+              : <TaskProgressMessage task={pendingTask} stream={pendingStream} />}
           </div>
         </article>
       )}
@@ -76,12 +84,10 @@ export function ConversationStream({ messages, tasksById, pendingTask }: Convers
 function ConversationBubble({
   message,
   task,
-  progressive,
   onContentChange
 }: {
   message: Message;
   task?: SqlTuningTask;
-  progressive: boolean;
   onContentChange: () => void;
 }) {
   const isUser = message.role === "USER";
@@ -90,7 +96,7 @@ function ConversationBubble({
     return (
       <article className="message-row assistant">
         <div className="assistant-message-body">
-          {task?.result ? <TuningAdviceMessage task={task} progressive={progressive} onContentChange={onContentChange} /> : task ? <TaskProgressMessage task={task} /> : <AssistantTextMessage message={message} />}
+          {task?.result ? <TuningAdviceMessage task={task} onContentChange={onContentChange} /> : task ? <TaskProgressMessage task={task} /> : <AssistantTextMessage message={message} />}
         </div>
       </article>
     );

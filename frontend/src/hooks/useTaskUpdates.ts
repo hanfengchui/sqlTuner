@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
-import type { HarnessArtifact, SqlTuningTask } from "../types/api";
+import type { HarnessArtifact, ModelStreamUpdate, SqlTuningTask } from "../types/api";
 
 interface UseTaskUpdatesOptions {
   initialTask?: SqlTuningTask;
@@ -11,6 +11,7 @@ interface UseTaskUpdatesOptions {
 export function useTaskUpdates(taskId: number | undefined, options: UseTaskUpdatesOptions = {}) {
   const [task, setTask] = useState<SqlTuningTask | undefined>(options.initialTask);
   const [error, setError] = useState("");
+  const [modelStream, setModelStream] = useState<ModelStreamUpdate | undefined>();
   const onTerminalRef = useRef(options.onTerminal);
   const currentVersionRef = useRef(options.initialTask?.version ?? -1);
 
@@ -28,6 +29,7 @@ export function useTaskUpdates(taskId: number | undefined, options: UseTaskUpdat
   useEffect(() => {
     if (taskId === undefined || !Number.isFinite(taskId)) {
       setTask(undefined);
+      setModelStream(undefined);
       setError("");
       return;
     }
@@ -41,6 +43,9 @@ export function useTaskUpdates(taskId: number | undefined, options: UseTaskUpdat
     let closeStream: () => void = () => undefined;
     const pollIntervalMs = options.pollIntervalMs ?? 2000;
     currentVersionRef.current = options.initialTask?.id === taskId ? options.initialTask.version ?? -1 : -1;
+    let currentStreamSequence = -1;
+    let currentStreamAttempt = options.initialTask?.id === taskId ? options.initialTask.attemptCount ?? -1 : -1;
+    setModelStream(undefined);
 
     function clearPoll() {
       if (pollTimer !== undefined) {
@@ -60,8 +65,14 @@ export function useTaskUpdates(taskId: number | undefined, options: UseTaskUpdat
       currentVersionRef.current = incomingVersion;
       setTask(next);
       setError("");
+      if (next.status === "QUEUED" || next.status === "RECEIVED") {
+        currentStreamAttempt = next.attemptCount ?? currentStreamAttempt;
+        currentStreamSequence = -1;
+        setModelStream(undefined);
+      }
       if (next.status === "DONE" || next.status === "FAILED") {
         terminal = true;
+        setModelStream(undefined);
         clearPoll();
         closeStream();
         if (!terminalNotified) {
@@ -83,6 +94,26 @@ export function useTaskUpdates(taskId: number | undefined, options: UseTaskUpdat
           item.nodeName === artifact.nodeName && item.createdAt === artifact.createdAt);
         return exists ? current : { ...current, artifacts: [...current.artifacts, artifact] };
       });
+    }
+
+    function acceptModelStream(update: ModelStreamUpdate) {
+      const incomingAttempt = update.attempt ?? currentStreamAttempt;
+      if (!alive || terminal || incomingAttempt < currentStreamAttempt) {
+        return;
+      }
+      if (incomingAttempt > currentStreamAttempt) {
+        currentStreamAttempt = incomingAttempt;
+        currentStreamSequence = -1;
+      }
+      if (update.sequence < currentStreamSequence) {
+        return;
+      }
+      currentStreamSequence = update.sequence;
+      if (update.phase === "RESET") {
+        setModelStream(undefined);
+        return;
+      }
+      setModelStream(update);
     }
 
     async function recoverFromDatabase() {
@@ -115,6 +146,7 @@ export function useTaskUpdates(taskId: number | undefined, options: UseTaskUpdat
         },
         onTask: accept,
         onArtifact: acceptArtifact,
+        onModelStream: acceptModelStream,
         onError: () => {
           streamOpen = false;
           schedulePoll(0);
@@ -131,5 +163,5 @@ export function useTaskUpdates(taskId: number | undefined, options: UseTaskUpdat
     };
   }, [taskId, options.pollIntervalMs]);
 
-  return { task, error };
+  return { task, error, modelStream };
 }

@@ -7,6 +7,7 @@ import type {
   ModelCatalogView,
   ModelPreviewResult,
   ModelProviderOption,
+  ModelStreamUpdate,
   ModelTestResult,
   PlanImage,
   ReadinessView,
@@ -130,6 +131,7 @@ export const api = {
     onOpen?: () => void;
     onTask: (task: SqlTuningTask) => void;
     onArtifact?: (artifact: HarnessArtifact) => void;
+    onModelStream?: (update: ModelStreamUpdate) => void;
     onError?: () => void;
   }) {
     const source = new EventSource(`/api/tuning/tasks/${taskId}/events`, { withCredentials: true });
@@ -144,6 +146,9 @@ export const api = {
       if (handlers.onArtifact) {
         handlers.onArtifact(JSON.parse((event as MessageEvent<string>).data) as HarnessArtifact);
       }
+    });
+    source.addEventListener("model-stream", (event) => {
+      handlers.onModelStream?.(JSON.parse((event as MessageEvent<string>).data) as ModelStreamUpdate);
     });
     source.onopen = () => handlers.onOpen?.();
     source.onerror = () => handlers.onError?.();

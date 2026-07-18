@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SqlTuningTask } from "../types/api";
 import { TaskProgressMessage, TuningAdviceMessage } from "./TuningAdviceMessage";
@@ -23,8 +23,7 @@ describe("TuningAdviceMessage", () => {
     vi.useRealTimers();
   });
 
-  it("reveals a newly validated answer in short progressive steps", () => {
-    vi.useFakeTimers();
+  it("renders the complete validated answer without a fake streaming delay", () => {
     render(
       <TuningAdviceMessage
         task={{
@@ -52,15 +51,12 @@ describe("TuningAdviceMessage", () => {
     );
 
     expect(screen.getByText("先确认扫描路径。")).toBeInTheDocument();
-    expect(screen.queryByText("重点问题")).not.toBeInTheDocument();
-    act(() => vi.advanceTimersByTime(140));
-    expect(screen.getByText("重点问题")).toBeInTheDocument();
+    expect(screen.getByText("关键问题")).toBeInTheDocument();
   });
 
   it("prefers one evidence-gated index DDL over a secondary rewrite", () => {
     render(
       <TuningAdviceMessage
-        progressive={false}
         task={{
           ...baseTask,
           result: {
@@ -102,14 +98,14 @@ describe("TuningAdviceMessage", () => {
     );
 
     expect(screen.getByText("已校验")).toBeInTheDocument();
-    expect(screen.getByText("重点问题")).toBeInTheDocument();
+    expect(screen.getByText("关键问题")).toBeInTheDocument();
     expect(screen.getByText("SELECT * 扩大回表成本")).toBeInTheDocument();
     expect(screen.getByText("第三个问题")).toBeInTheDocument();
     expect(screen.queryByText("不应默认展示")).not.toBeInTheDocument();
     expect(screen.queryByText("建议改写")).not.toBeInTheDocument();
     expect(screen.getByText("索引候选")).toBeInTheDocument();
     expect(screen.getByText(/create index idx_orders_status_created/)).toBeInTheDocument();
-    expect(screen.getByText("验证")).toBeInTheDocument();
+    expect(screen.queryByText("验证")).not.toBeInTheDocument();
     expect(screen.queryByText("E_EXPLAIN")).not.toBeInTheDocument();
     expect(screen.queryByRole("tab")).not.toBeInTheDocument();
   });
@@ -117,7 +113,6 @@ describe("TuningAdviceMessage", () => {
   it("shows only the next required input when the evidence gate needs more data", () => {
     render(
       <TuningAdviceMessage
-        progressive={false}
         task={{
           ...baseTask,
           result: {
@@ -174,7 +169,6 @@ describe("TuningAdviceMessage", () => {
   it("uses the readable narrative as the primary answer without repeating legacy diagnoses", () => {
     render(
       <TuningAdviceMessage
-        progressive={false}
         task={{
           ...baseTask,
           result: {
@@ -236,17 +230,17 @@ describe("TuningAdviceMessage", () => {
 
     expect(screen.queryByText("最终结论：")).not.toBeInTheDocument();
     expect(screen.getByText("先补齐执行计划，再判断扫描和排序是否真的存在。")).toBeInTheDocument();
-    expect(screen.getByText("依据")).toBeInTheDocument();
-    expect(screen.getByText("建议与前提")).toBeInTheDocument();
-    expect(screen.getByText("验证信号")).toBeInTheDocument();
+    expect(screen.queryByText("依据")).not.toBeInTheDocument();
+    expect(screen.queryByText("建议与前提")).not.toBeInTheDocument();
+    expect(screen.queryByText("验证信号")).not.toBeInTheDocument();
     expect(screen.queryByText("不应重复的结论块")).not.toBeInTheDocument();
     expect(screen.queryByText("这段结论不应在顶部结论之后再显示。")).not.toBeInTheDocument();
     expect(screen.getByText(/create index idx_orders_tenant_created/)).toBeInTheDocument();
-    expect(screen.getByText("已知 SQL 包含筛选和排序。")).toBeInTheDocument();
-    expect(screen.queryByText("索引候选")).not.toBeInTheDocument();
-    expect(screen.queryByText("仅在已验证前提下减少排序")).not.toBeInTheDocument();
-    expect(screen.queryByText("重点问题")).not.toBeInTheDocument();
-    expect(screen.queryByText("旧诊断不应重复")).not.toBeInTheDocument();
+    expect(screen.queryByText("已知 SQL 包含筛选和排序。")).not.toBeInTheDocument();
+    expect(screen.getByText("索引候选")).toBeInTheDocument();
+    expect(screen.getByText("仅在已验证前提下减少排序")).toBeInTheDocument();
+    expect(screen.queryByText("关键问题")).toBeInTheDocument();
+    expect(screen.queryByText("旧诊断不应重复")).toBeInTheDocument();
     expect(screen.queryByText("E_SQL")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "查看完整依据" })).not.toBeInTheDocument();
   });
@@ -254,7 +248,6 @@ describe("TuningAdviceMessage", () => {
   it("keeps a non-executable index direction visible after the narrative action", () => {
     render(
       <TuningAdviceMessage
-        progressive={false}
         task={{
           ...baseTask,
           result: {
@@ -293,7 +286,7 @@ describe("TuningAdviceMessage", () => {
       />
     );
 
-    expect(screen.getByText("主建议")).toBeInTheDocument();
+    expect(screen.queryByText("主建议")).not.toBeInTheDocument();
     expect(screen.getByText("索引候选")).toBeInTheDocument();
     expect(screen.getByText("orders (tenant_id, created_at)")).toBeInTheDocument();
     expect(screen.getByText("确认排序列是否已被现有复合索引覆盖")).toBeInTheDocument();
@@ -304,5 +297,50 @@ describe("TuningAdviceMessage", () => {
 
     expect(screen.getByText("正在校验模型结构化输出")).toBeInTheDocument();
     expect(screen.queryByText("调优建议已生成")).not.toBeInTheDocument();
+  });
+
+  it("renders a safe live draft and suppresses executable statements", () => {
+    const { rerender } = render(
+      <TaskProgressMessage
+        task={{ ...baseTask, status: "LLM_ANALYZING", statusMessage: "正在调用模型分析" }}
+        stream={{
+          phase: "ANSWER",
+          draftText: "先确认驱动表扫描。\nCREATE INDEX idx_unsafe ON orders(id);\n再核对排序路径。",
+          receivedChars: 256,
+          sequence: 3
+        }}
+      />
+    );
+
+    expect(screen.queryByText("正在生成 · 待校验")).not.toBeInTheDocument();
+    expect(screen.queryByText(/先确认驱动表扫描/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/idx_unsafe/)).not.toBeInTheDocument();
+
+    rerender(
+      <TaskProgressMessage
+        task={{ ...baseTask, status: "LLM_ANALYZING", statusMessage: "正在调用模型分析" }}
+        stream={{
+          phase: "ANSWER",
+          draftText: "先确认驱动表扫描。\nCREATE UNIQUE INDEX idx_unique_unsafe ON orders(id);",
+          receivedChars: 300,
+          sequence: 4
+        }}
+      />
+    );
+    expect(screen.queryByText(/idx_unique_unsafe/)).not.toBeInTheDocument();
+
+    rerender(
+      <TaskProgressMessage
+        task={{ ...baseTask, status: "LLM_ANALYZING", statusMessage: "正在调用模型分析" }}
+        stream={{
+          phase: "THINKING",
+          draftText: "{\"indexCandidates\":[]}",
+          receivedChars: 128,
+          sequence: 5
+        }}
+      />
+    );
+    expect(screen.getByText(/模型正在推理/)).toBeInTheDocument();
+    expect(screen.queryByText(/indexCandidates/)).not.toBeInTheDocument();
   });
 });
