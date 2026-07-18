@@ -2,7 +2,9 @@ package com.codex.sqltuner.config;
 
 import com.codex.sqltuner.auth.AuthService;
 import com.codex.sqltuner.auth.UserAccount;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -24,7 +26,8 @@ public class SessionAuthenticationFilter extends OncePerRequestFilter {
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
         HttpSession session = request.getSession(false);
-        if (session != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+        Authentication current = SecurityContextHolder.getContext().getAuthentication();
+        if (session != null && (current == null || current instanceof AnonymousAuthenticationToken)) {
             Object value = session.getAttribute(AuthService.SESSION_USER);
             if (value instanceof UserAccount) {
                 UserAccount account = (UserAccount) value;
