@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SqlTuningTask } from "../types/api";
 import { TaskProgressMessage, TuningAdviceMessage } from "./TuningAdviceMessage";
 
@@ -19,6 +19,44 @@ const baseTask: SqlTuningTask = {
 };
 
 describe("TuningAdviceMessage", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("reveals a newly validated answer in short progressive steps", () => {
+    vi.useFakeTimers();
+    render(
+      <TuningAdviceMessage
+        task={{
+          ...baseTask,
+          result: {
+            outcome: "ADVICE",
+            summary: "先确认扫描路径。",
+            diagnoses: [{ title: "扫描范围偏大", impact: "需要计划证据", confidence: "LOW" }],
+            rewriteCandidates: [],
+            indexCandidates: [],
+            validationPlan: [],
+            missingInformation: [],
+            safetyWarnings: [],
+            findings: [],
+            rewriteSql: "",
+            indexSuggestions: [],
+            validationSteps: [],
+            riskWarnings: [],
+            needMoreInfo: [],
+            rawModelOutput: "",
+            mockModel: false
+          }
+        }}
+      />
+    );
+
+    expect(screen.getByText("先确认扫描路径。")).toBeInTheDocument();
+    expect(screen.queryByText("重点问题")).not.toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(140));
+    expect(screen.getByText("重点问题")).toBeInTheDocument();
+  });
+
   it("prefers one evidence-gated index DDL over a secondary rewrite", () => {
     render(
       <TuningAdviceMessage
@@ -196,7 +234,7 @@ describe("TuningAdviceMessage", () => {
       />
     );
 
-    expect(screen.getByText("最终结论：")).toBeInTheDocument();
+    expect(screen.queryByText("最终结论：")).not.toBeInTheDocument();
     expect(screen.getByText("先补齐执行计划，再判断扫描和排序是否真的存在。")).toBeInTheDocument();
     expect(screen.getByText("依据")).toBeInTheDocument();
     expect(screen.getByText("建议与前提")).toBeInTheDocument();

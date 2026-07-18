@@ -1,5 +1,5 @@
-import { Bot, UserRound } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { Bot } from "lucide-react";
+import { useCallback, useEffect, useRef } from "react";
 import { TaskProgressMessage, TuningAdviceMessage } from "./TuningAdviceMessage";
 import type { Message, SqlTuningTask } from "../types/api";
 
@@ -11,16 +11,28 @@ interface ConversationStreamProps {
 
 export function ConversationStream({ messages, tasksById, pendingTask }: ConversationStreamProps) {
   const streamRef = useRef<HTMLElement>(null);
+  const stickToLatestRef = useRef(true);
   const hasAssistantForPending = pendingTask
     ? messages.some((message) => message.taskId === pendingTask.id && message.role === "ASSISTANT")
     : false;
 
-  useEffect(() => {
+  const scrollToLatest = useCallback(() => {
     const stream = streamRef.current;
     if (stream) {
       stream.scrollTop = stream.scrollHeight;
     }
-  }, [messages.length, pendingTask?.id, pendingTask?.status, pendingTask?.version]);
+  }, []);
+
+  const followProgressiveContent = useCallback(() => {
+    if (stickToLatestRef.current) {
+      window.requestAnimationFrame(scrollToLatest);
+    }
+  }, [scrollToLatest]);
+
+  useEffect(() => {
+    stickToLatestRef.current = true;
+    scrollToLatest();
+  }, [messages.length, pendingTask?.id, pendingTask?.status, pendingTask?.version, scrollToLatest]);
 
   if (messages.length === 0 && !pendingTask) {
     return (
@@ -33,19 +45,27 @@ export function ConversationStream({ messages, tasksById, pendingTask }: Convers
   }
 
   return (
-    <section ref={streamRef} className="conversation-stream chat-conversation">
+    <section
+      ref={streamRef}
+      className="conversation-stream chat-conversation"
+      onScroll={(event) => {
+        const stream = event.currentTarget;
+        stickToLatestRef.current = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 72;
+      }}
+    >
       {messages.map((message) => (
         <ConversationBubble
           key={message.id}
           message={message}
           task={message.taskId ? tasksById[message.taskId] : undefined}
+          progressive={Boolean(pendingTask && message.taskId === pendingTask.id)}
+          onContentChange={followProgressiveContent}
         />
       ))}
       {pendingTask && !hasAssistantForPending && (
         <article className="message-row assistant">
-          <div className="message-avatar"><Bot size={18} /></div>
           <div className="assistant-message-body">
-            {pendingTask.result ? <TuningAdviceMessage task={pendingTask} /> : <TaskProgressMessage task={pendingTask} />}
+            {pendingTask.result ? <TuningAdviceMessage task={pendingTask} onContentChange={followProgressiveContent} /> : <TaskProgressMessage task={pendingTask} />}
           </div>
         </article>
       )}
@@ -53,28 +73,32 @@ export function ConversationStream({ messages, tasksById, pendingTask }: Convers
   );
 }
 
-function ConversationBubble({ message, task }: { message: Message; task?: SqlTuningTask }) {
+function ConversationBubble({
+  message,
+  task,
+  progressive,
+  onContentChange
+}: {
+  message: Message;
+  task?: SqlTuningTask;
+  progressive: boolean;
+  onContentChange: () => void;
+}) {
   const isUser = message.role === "USER";
 
   if (!isUser) {
     return (
       <article className="message-row assistant">
-        <div className="message-avatar"><Bot size={18} /></div>
         <div className="assistant-message-body">
-          {task?.result ? <TuningAdviceMessage task={task} /> : task ? <TaskProgressMessage task={task} /> : <AssistantTextMessage message={message} />}
+          {task?.result ? <TuningAdviceMessage task={task} progressive={progressive} onContentChange={onContentChange} /> : task ? <TaskProgressMessage task={task} /> : <AssistantTextMessage message={message} />}
         </div>
       </article>
     );
   }
 
   return (
-    <article className="message-row user">
-      <div className="message-avatar"><UserRound size={17} /></div>
+    <article className="message-row user" aria-label={`你的消息，${formatTime(message.createdAt)}`}>
       <div className="message-card user-message-card">
-        <div className="message-meta">
-          <strong>你</strong>
-          <span>{formatTime(message.createdAt)}</span>
-        </div>
         {looksLikeSqlOrReport(message.content) ? <pre className="user-sql-message">{message.content}</pre> : <p>{message.content}</p>}
       </div>
     </article>
@@ -83,14 +107,7 @@ function ConversationBubble({ message, task }: { message: Message; task?: SqlTun
 
 function AssistantTextMessage({ message }: { message: Message }) {
   return (
-    <article className="assistant-text-message">
-      <div className="assistant-message-header">
-        <div>
-          <Bot size={17} />
-          <strong>SQL 调优助手</strong>
-        </div>
-        <span>{formatTime(message.createdAt)}</span>
-      </div>
+    <article className="assistant-text-message" aria-label={`SQL 调优助手，${formatTime(message.createdAt)}`}>
       <p>{message.content}</p>
     </article>
   );

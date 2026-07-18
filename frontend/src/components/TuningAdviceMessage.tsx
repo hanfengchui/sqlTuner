@@ -1,10 +1,11 @@
 import { AlertTriangle, CheckCircle2, ClipboardCheck, Copy, FileSearch, Lightbulb, ListChecks, Loader2, ShieldAlert, Sparkles, Wrench } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import type { AnalysisNarrativeSection, Diagnosis, IndexCandidate, RewriteCandidate, SqlTuningTask, ValidationStep } from "../types/api";
 
 interface TuningAdviceMessageProps {
   task?: SqlTuningTask;
   progressive?: boolean;
+  onContentChange?: () => void;
 }
 
 type AdviceBlock =
@@ -15,7 +16,7 @@ type AdviceBlock =
   | { id: "validation-plan"; type: "validation-plan"; plan: Array<ValidationStep | string> }
   | { id: "next"; type: "next" };
 
-export function TuningAdviceMessage({ task, progressive = true }: TuningAdviceMessageProps) {
+export function TuningAdviceMessage({ task, progressive = true, onContentChange }: TuningAdviceMessageProps) {
   const advice = useMemo(() => normalizeAdvice(task), [task]);
   const blocks = useMemo(() => buildBlocks(advice), [advice]);
   const [visibleBlockCount, setVisibleBlockCount] = useState(progressive ? 0 : blocks.length);
@@ -33,24 +34,25 @@ export function TuningAdviceMessage({ task, progressive = true }: TuningAdviceMe
     return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [blocks, progressive, task?.id, task?.version]);
 
+  useLayoutEffect(() => {
+    onContentChange?.();
+  }, [onContentChange, visibleBlockCount]);
+
   if (!task?.result) {
     return <TaskProgressMessage task={task} />;
   }
 
   return (
     <article className="tuning-advice" aria-live="polite">
-      <header className="assistant-message-header">
-        <div>
-          <Sparkles size={17} />
-          <strong>SQL 调优助手</strong>
-        </div>
+      <header className="assistant-message-header advice-message-status">
         <span className={advice.outcome === "NEEDS_INPUT" ? "advice-state needs-input" : "advice-state"}>
+          {advice.outcome === "NEEDS_INPUT" ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
           {advice.outcome === "NEEDS_INPUT" ? "需要补充" : "已校验"}
         </span>
       </header>
 
       <section className="advice-conclusion">
-        <p><strong>最终结论：</strong>{stripConclusionPrefix(advice.narrative?.conclusion || advice.summary)}</p>
+        <p>{stripConclusionPrefix(advice.narrative?.conclusion || advice.summary)}</p>
       </section>
 
       {blocks.slice(0, visibleBlockCount).map((block) => renderBlock(block, advice))}
@@ -69,7 +71,6 @@ export function TaskProgressMessage({ task }: { task?: SqlTuningTask }) {
         {failed ? <AlertTriangle size={18} /> : completed ? <CheckCircle2 size={18} /> : <Loader2 className="spin" size={18} />}
       </div>
       <div>
-        <strong>SQL 调优助手</strong>
         <p>{failed ? "本轮分析没有完成。请检查输入后重新发送。" : completed ? "正在整理已校验的调优建议。" : message}</p>
       </div>
     </article>

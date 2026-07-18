@@ -32,7 +32,8 @@ test("workspace shell renders session search and composer", async ({ page }) => 
 
   await page.goto("/chat");
 
-  await expect(page.getByText("SQL 调优助手").first()).toBeVisible();
+  await expect(page.getByText("SQL Tuner")).toBeVisible();
+  await page.getByRole("button", { name: "搜索会话" }).click();
   await expect(page.getByPlaceholder("搜索会话标题")).toBeVisible();
   await expect(page.getByLabel("SQL 或巡检报告文本")).toBeVisible();
   await expect(page.getByLabel("SQL 调优消息编辑器")).toBeVisible();
@@ -42,24 +43,77 @@ test("workspace shell renders session search and composer", async ({ page }) => 
   const desktopShell = await page.locator(".app-shell").evaluate((shell) => {
     const sidebar = shell.querySelector<HTMLElement>(".sidebar");
     const mainStage = shell.querySelector<HTMLElement>(".main-stage");
+    const topbar = shell.querySelector<HTMLElement>(".topbar");
+    const chatColumn = shell.querySelector<HTMLElement>(".chat-column");
+    const composer = shell.querySelector<HTMLElement>(".chat-composer");
+    const sidebarRect = sidebar?.getBoundingClientRect();
+    const composerRect = composer?.getBoundingClientRect();
     return {
       viewportHeight: window.innerHeight,
       shellHeight: shell.getBoundingClientRect().height,
-      sidebarHeight: sidebar?.getBoundingClientRect().height,
+      sidebarHeight: sidebarRect?.height,
+      sidebarWidth: sidebarRect?.width,
+      sidebarTop: sidebarRect?.top,
+      sidebarLeft: sidebarRect?.left,
       sidebarPosition: sidebar ? getComputedStyle(sidebar).position : "",
       sidebarOverflowY: sidebar ? getComputedStyle(sidebar).overflowY : "",
-      mainOverflowY: mainStage ? getComputedStyle(mainStage).overflowY : ""
+      mainOverflowY: mainStage ? getComputedStyle(mainStage).overflowY : "",
+      topbarHeight: topbar?.getBoundingClientRect().height,
+      chatColumnWidth: chatColumn?.getBoundingClientRect().width,
+      composerHeight: composerRect?.height,
+      composerBottomOffset: composerRect ? window.innerHeight - composerRect.bottom : undefined
     };
   });
 
   expect(desktopShell.shellHeight).toBe(desktopShell.viewportHeight);
   expect(desktopShell.sidebarHeight).toBe(desktopShell.viewportHeight);
-  expect(desktopShell.sidebarPosition).toBe("sticky");
+  expect(desktopShell.sidebarWidth).toBe(276);
+  expect(desktopShell.sidebarTop).toBe(0);
+  expect(desktopShell.sidebarLeft).toBe(0);
+  expect(desktopShell.sidebarPosition).toBe("fixed");
   expect(desktopShell.sidebarOverflowY).toBe("hidden");
   expect(desktopShell.mainOverflowY).toBe("auto");
+  expect(desktopShell.topbarHeight).toBe(48);
+  expect(desktopShell.chatColumnWidth).toBe(760);
+  expect(desktopShell.composerHeight).toBeGreaterThanOrEqual(94);
+  expect(desktopShell.composerHeight).toBeLessThanOrEqual(102);
+  expect(desktopShell.composerBottomOffset).toBe(16);
+
+  const composer = page.getByLabel("SQL 或巡检报告文本");
+  const collapsedHeight = await page.locator(".chat-composer").evaluate((element) => element.getBoundingClientRect().height);
+  await composer.fill(Array.from({ length: 8 }, (_, index) => `select ${index + 1}`).join("\n"));
+  const expandedHeight = await page.locator(".chat-composer").evaluate((element) => element.getBoundingClientRect().height);
+  expect(expandedHeight).toBeGreaterThan(collapsedHeight);
+  expect(expandedHeight).toBeLessThanOrEqual(242);
+  await composer.fill("");
+  await expect.poll(() => page.locator(".chat-composer").evaluate((element) => element.getBoundingClientRect().height)).toBe(collapsedHeight);
+
+  await composer.fill("select 1");
+  await page.getByRole("button", { name: "切换到浅色" }).click();
+  const sendButton = page.getByRole("button", { name: "提交分析" });
+  await sendButton.hover();
+  const sendColors = await sendButton.evaluate((element) => {
+    const styles = getComputedStyle(element);
+    return { background: styles.backgroundColor, foreground: styles.color };
+  });
+  expect(sendColors.background).not.toBe(sendColors.foreground);
 });
 
 test("workspace renders concise validated advice inline in the conversation", async ({ page }, testInfo) => {
+  const conversationTitles = [
+    "订单慢 SQL",
+    "优化 SQL 全表扫描与嵌套循环",
+    "检查分页排序访问路径",
+    "分析索引回表成本",
+    "Oracle 子查询改写",
+    "核对分区裁剪条件",
+    "处理函数包列问题",
+    "复合索引前缀评估",
+    "检查隐式类型转换",
+    "慢查询报告复核",
+    "更新语句安全检查",
+    "聚合临时表分析"
+  ];
   await page.route("**/api/auth/me", async (route) => {
     await route.fulfill({
       json: { success: true, data: { id: 1, username: "admin", displayName: "Admin", role: "ADMIN" } }
@@ -69,7 +123,13 @@ test("workspace renders concise validated advice inline in the conversation", as
     await route.fulfill({
       json: {
         success: true,
-        data: [{ id: 1, userId: 1, title: "订单慢 SQL", createdAt: "2026-07-18T00:00:00Z", updatedAt: "2026-07-18T00:00:00Z" }]
+        data: conversationTitles.map((title, index) => ({
+          id: index + 1,
+          userId: 1,
+          title,
+          createdAt: "2026-07-18T00:00:00Z",
+          updatedAt: `2026-07-18T00:${String(index).padStart(2, "0")}:00Z`
+        }))
       }
     });
   });
@@ -78,6 +138,8 @@ test("workspace renders concise validated advice inline in the conversation", as
       json: {
         success: true,
         data: [
+          { id: -1, conversationId: 1, role: "USER", content: "先按现有信息判断这条查询最可能的瓶颈。", createdAt: "2026-07-17T23:58:00Z" },
+          { id: 0, conversationId: 1, role: "ASSISTANT", content: "上一轮已确认当前 SQL 的筛选和排序结构，但在没有执行计划与现有索引定义前，不能把耗时直接归因于索引缺失。", createdAt: "2026-07-17T23:59:00Z" },
           { id: 1, conversationId: 1, role: "USER", content: "select * from orders where status = 'PAID' order by created_at desc", taskId: 7, createdAt: "2026-07-18T00:00:00Z" },
           { id: 2, conversationId: 1, role: "ASSISTANT", content: "当前查询可通过缩小投影列并验证排序访问路径来降低扫描成本。", taskId: 7, createdAt: "2026-07-18T00:00:05Z" }
         ]
@@ -122,7 +184,13 @@ test("workspace renders concise validated advice inline in the conversation", as
                 {
                   kind: "VALIDATION",
                   title: "验证标准",
-                  body: "- 对比改动前后的 EXPLAIN。\n- 确认排序访问路径和返回结果保持一致。",
+                  body: "- 对比改动前后的 EXPLAIN。\n- 确认排序访问路径和返回结果保持一致。\n- 用相同绑定变量比较扫描行数与响应时间。",
+                  evidenceRefs: ["E_EXPLAIN"]
+                },
+                {
+                  kind: "CAUTION",
+                  title: "上线前注意",
+                  body: "- 不要在缺少现有索引定义时直接创建重复索引。\n- 先在影子环境验证写入成本和结果集一致性。",
                   evidenceRefs: ["E_EXPLAIN"]
                 }
               ]
@@ -158,6 +226,7 @@ test("workspace renders concise validated advice inline in the conversation", as
   await expect(page.getByText("先确认当前访问路径和索引覆盖情况；在没有计划证据前，不应直接把排序问题归因于索引缺失。")).toBeVisible();
   await expect(page.getByText("为什么先验证计划")).toBeVisible();
   await expect(page.getByText("验证标准")).toBeVisible();
+  await expect(page.getByText("上线前注意")).toBeVisible();
   await expect(page.getByText("建议改写")).toHaveCount(0);
   await expect(page.getByText("索引候选")).toHaveCount(0);
   await expect(page.getByText(/create index idx_orders_status_created/)).toBeVisible();

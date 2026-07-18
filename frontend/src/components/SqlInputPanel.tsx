@@ -1,6 +1,6 @@
-import { ImagePlus, SendHorizontal, Sparkles, Trash2 } from "lucide-react";
+import { ArrowUp, Plus, Sparkles, Trash2 } from "lucide-react";
 import type React from "react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PlanImage, SqlDialect } from "../types/api";
 
 const MAX_IMAGE_COUNT = 3;
@@ -34,6 +34,16 @@ export function SqlInputPanel({ loading, onSubmit }: SqlInputPanelProps) {
   const [imageError, setImageError] = useState("");
   const [draggingImages, setDraggingImages] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const textInputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const textarea = textInputRef.current;
+    if (!textarea) {
+      return;
+    }
+    textarea.style.height = "0px";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
+  }, [sqlText]);
 
   async function submit() {
     if (!sqlText.trim() || loading) {
@@ -187,23 +197,17 @@ export function SqlInputPanel({ loading, onSubmit }: SqlInputPanelProps) {
       )}
 
       <textarea
+        ref={textInputRef}
         value={sqlText}
         onChange={(event) => setSqlText(event.target.value)}
         onKeyDown={handleKeyDown}
         aria-label="SQL 或巡检报告文本"
-        placeholder="粘贴 SQL、巡检报告、DDL 或 EXPLAIN，直接分析"
-        rows={5}
+        placeholder="输入 SQL，或粘贴完整巡检报告"
+        rows={1}
       />
 
       <footer className="chat-composer-footer">
         <div className="chat-composer-controls">
-          <label className="composer-select">
-            <span className="sr-only">数据库方言</span>
-            <select value={dbDialect} onChange={(event) => setDbDialect(event.target.value as SqlDialect)} aria-label="数据库方言">
-              <option value="OceanBase MySQL">OB MySQL</option>
-              <option value="OceanBase Oracle">OB Oracle</option>
-            </select>
-          </label>
           <button
             className="composer-icon-button"
             type="button"
@@ -211,7 +215,7 @@ export function SqlInputPanel({ loading, onSubmit }: SqlInputPanelProps) {
             aria-label="添加执行计划截图"
             title="添加执行计划截图"
           >
-            <ImagePlus size={17} />
+            <Plus size={18} />
             {planImages.length > 0 && <span>{planImages.length}</span>}
           </button>
           <button
@@ -225,16 +229,25 @@ export function SqlInputPanel({ loading, onSubmit }: SqlInputPanelProps) {
             <span>{deepAnalysis ? "深度复核" : "标准分析"}</span>
           </button>
         </div>
-        <button
-          className="composer-send"
-          disabled={loading || !sqlText.trim()}
-          onClick={() => void submit()}
-          title="提交分析"
-          aria-label="提交分析"
-          type="button"
-        >
-          <SendHorizontal size={18} />
-        </button>
+        <div className="chat-composer-actions">
+          <label className="composer-select">
+            <span className="sr-only">数据库方言</span>
+            <select value={dbDialect} onChange={(event) => setDbDialect(event.target.value as SqlDialect)} aria-label="数据库方言">
+              <option value="OceanBase MySQL">OB MySQL</option>
+              <option value="OceanBase Oracle">OB Oracle</option>
+            </select>
+          </label>
+          <button
+            className="composer-send"
+            disabled={loading || !sqlText.trim()}
+            onClick={() => void submit()}
+            title="提交分析"
+            aria-label="提交分析"
+            type="button"
+          >
+            <ArrowUp size={19} strokeWidth={2.2} />
+          </button>
+        </div>
       </footer>
       {imageError && <div className="form-error composer-error" role="alert">{imageError}</div>}
     </section>

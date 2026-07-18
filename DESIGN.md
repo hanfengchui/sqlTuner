@@ -4,7 +4,7 @@
 - Status: Active
 - Last refreshed: 2026-07-18
 - Primary product surfaces: Login, desktop SQL tuning conversation, model operations console, skill prompt console, deterministic rule catalog.
-- Evidence reviewed: `frontend/src/pages/App.tsx`, `frontend/src/components/AppShell.tsx`, `frontend/src/components/SqlInputPanel.tsx`, `frontend/src/components/ConversationStream.tsx`, `frontend/src/components/TuningAdviceMessage.tsx`, `frontend/src/pages/*AdminPage.tsx`, `frontend/src/styles/global.css`, `README.md`, user-approved sqlTuner overhaul plan, current production workspace screenshot and the supplied Codex desktop conversation reference on 2026-07-18.
+- Evidence reviewed: `frontend/src/pages/App.tsx`, `frontend/src/components/AppShell.tsx`, `frontend/src/components/SqlInputPanel.tsx`, `frontend/src/components/ConversationStream.tsx`, `frontend/src/components/TuningAdviceMessage.tsx`, `frontend/src/pages/*AdminPage.tsx`, `frontend/src/styles/global.css`, `README.md`, user-approved sqlTuner overhaul plan, current production workspace screenshot and the supplied 2940x1846 Codex desktop conversation reference on 2026-07-18.
 
 ## Brand
 - Personality: focused, technical, quiet, and decisive under production pressure.
@@ -36,14 +36,14 @@
 ## Visual language
 - Color: charcoal conversation rail and workspace by default, warm graphite message surfaces, cobalt for the one primary send action, amber/red only for uncertainty and failure, green only for completed health/pass states. The light theme remains available.
 - Typography: IBM Plex Sans style system stack for UI, JetBrains Mono style stack for pasted SQL/report text and rewritten SQL.
-- Spacing/layout rhythm: 4px token grid, narrow 8-16px internal spacing, a 760-860px reading column inside the desktop canvas, and ample blank space above an empty composer.
-- Shape/radius/elevation: 6-8px radius, quiet hairline borders, very low elevation. User input uses a subtle solid surface; assistant output should read as content rather than as stacked cards.
+- Spacing/layout rhythm: the reference image is Retina 2x and therefore represents a 1470x923 CSS viewport. Its fixed measurements are the implementation authority: 276px conversation rail, 48px top bar, 760px maximum reading/composer column, 16px composer bottom offset and an approximately 98px empty composer. Use a 4px spacing grid and 8-16px internal spacing.
+- Shape/radius/elevation: ordinary controls use 6-8px radius; the Codex-specific message composer uses an 18px radius and user bubbles use 14px. Borders are quiet hairlines and elevation is very low. Assistant output is unframed content rather than a card.
 - Motion: short section reveals after a validated task reaches `DONE`; respect reduced motion and immediately reveal all content in that mode.
 - Imagery/iconography: lucide icons for commands, status, attachments and copy; no decorative illustration, visual dashboard ornament or emoji.
 
 ## Components
 - Existing components to reuse: authentication API shape, conversation/task APIs, theme hook, admin pages, task SSE/polling behavior, server-side pasted-report extraction and image validation.
-- New/changed components: Codex-like desktop conversation rail, compact SQL/report message composer, screenshot attachment tray, chat task-progress message, validated tuning-advice message, searchable session list and compact admin consoles.
+- New/changed components: Codex-proportioned desktop conversation rail, compact auto-growing SQL/report message composer, screenshot attachment tray, unframed chat task-progress message, validated tuning-advice message, searchable session list and compact admin consoles.
 - Removed from the workspace: context-completeness meter, schema/index/EXPLAIN/runtime/semantic text fields, allowed-action checkboxes, the "补充证据" disclosure, right report inspector, result tabs and routine artifact/evidence cards.
 - Variants and states: queued/running/terminal task states, standard/deep analysis, `ADVICE`/`NEEDS_INPUT`, empty/error/loading/disabled/offline-ish retry states.
 - Token/component ownership: global CSS owns tokens and shared layout primitives; React components own state and semantics.
@@ -57,7 +57,7 @@
 
 ## Responsive behavior
 - Supported breakpoints/devices: desktop browsers at 1366, 1440 and 1920 widths. Tablet and mobile are explicitly unsupported.
-- Layout adaptations: the persistent left rail and the single center conversation column never collapse or split into a report panel. Viewports below 1366px retain the desktop canvas with horizontal scrolling instead of responsive rearrangement.
+- Layout adaptations: the persistent 276px left rail and single centered 760px conversation column never collapse or split into a report panel. Viewports below 1366px retain the desktop canvas with horizontal scrolling instead of responsive rearrangement.
 - Touch/hover differences: desktop pointer and keyboard behavior only; no touch-specific interaction path is maintained.
 
 ## Interaction states
@@ -79,7 +79,7 @@
 - Design-token constraints: theme variables in CSS; ordinary radius 6-8px; no decorative gradients/orbs.
 - Performance constraints: frontend is static; model/API work stays backend; long pasted SQL/report text is bounded by the API contract and displayed in a scrollable monospace message; input images are bounded, persisted outside task JSON, and processed by a bounded vision call before the text analysis.
 - Compatibility constraints: preserve existing API response wrapper and legacy result fields while reading new structured fields when present; unsafe requests load `/api/auth/csrf` and send the returned CSRF header token; model gateways use OpenAI-compatible `/chat/completions` and optional `/models`, while manual model IDs remain available for gateways that do not expose catalogs; readiness telemetry comes from `/api/health/ready` (`status`, `mysql`, `queued`, `running`) and model runtime telemetry from `/api/admin/health` (`provider`, `model`, `mockState`, `apiKeyConfigured`).
-- Test/screenshot expectations: Vitest + Testing Library for composer attachment handling, concise validated advice rendering and task-stage behavior; Playwright desktop projects at 1366 and 1920 for login, chat composer, conversation result, history and admin flows. No tablet/mobile projects or responsive acceptance criteria.
+- Test/screenshot expectations: Vitest + Testing Library for composer attachment handling, concise validated advice rendering and task-stage behavior; Playwright desktop projects at 1366, 1440 and 1920 for login, chat composer, conversation result, fixed rail/history and admin flows. Visual artifacts live under `.omx/artifacts/visual-ralph/codex-chat/`. No tablet/mobile projects or responsive acceptance criteria.
 
 ## Open questions
 - None for this implementation slice.

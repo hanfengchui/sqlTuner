@@ -1,5 +1,6 @@
 import * as Tooltip from "@radix-ui/react-tooltip";
 import {
+  ArrowLeft,
   Bot,
   LogOut,
   MessageSquarePlus,
@@ -10,7 +11,7 @@ import {
   Sun,
   Trash2
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { Theme } from "../lib/useTheme";
 import type { Conversation, UserView } from "../types/api";
 
@@ -30,13 +31,23 @@ interface AppShellProps {
 }
 
 export function AppShell(props: AppShellProps) {
+  const activeTitle = props.conversations.find((conversation) => conversation.id === props.activeConversationId)?.title;
+  const adminRoute = props.currentRoute.startsWith("/admin/");
+
   return (
     <Tooltip.Provider delayDuration={250}>
       <div className="app-shell">
         <CommandRail {...props} />
         <main className="main-stage">
           <header className="topbar">
-            <button className="workspace-title" onClick={() => props.onNavigate("/chat")}>SQL 调优助手</button>
+            <div className="topbar-context">
+              {adminRoute && (
+                <TopbarIcon label="返回对话" onClick={() => props.onNavigate("/chat")}>
+                  <ArrowLeft size={17} />
+                </TopbarIcon>
+              )}
+              <span className="workspace-title">{routeTitle(props.currentRoute, activeTitle)}</span>
+            </div>
             <div className="topbar-actions">
               {props.user.role === "ADMIN" && (
                 <>
@@ -51,9 +62,6 @@ export function AppShell(props: AppShellProps) {
                   </TopbarIcon>
                 </>
               )}
-              <TopbarIcon label={props.theme === "dark" ? "切换到浅色" : "切换到深色"} onClick={props.onToggleTheme}>
-                {props.theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
-              </TopbarIcon>
             </div>
           </header>
           {props.children}
@@ -67,12 +75,16 @@ function CommandRail({
   user,
   conversations,
   activeConversationId,
+  theme,
+  onToggleTheme,
   onNewConversation,
   onSelectConversation,
   onDeleteConversation,
   onLogout
 }: AppShellProps) {
   const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const filtered = useMemo(() => {
     const text = query.trim().toLowerCase();
     if (!text) {
@@ -84,8 +96,28 @@ function CommandRail({
   return (
     <aside className="sidebar">
       <div className="rail-heading">
-        <strong>SQL 调优助手</strong>
-        <span>OceanBase</span>
+        <div>
+          <strong>SQL Tuner</strong>
+          <span>OceanBase</span>
+        </div>
+        <button
+          className={searchOpen ? "rail-search-button active" : "rail-search-button"}
+          type="button"
+          aria-label="搜索会话"
+          aria-pressed={searchOpen}
+          title="搜索会话"
+          onClick={() => {
+            if (searchOpen) {
+              setSearchOpen(false);
+              setQuery("");
+              return;
+            }
+            setSearchOpen(true);
+            window.setTimeout(() => searchInputRef.current?.focus(), 0);
+          }}
+        >
+          <Search size={16} />
+        </button>
       </div>
 
       <button className="new-chat-card" onClick={onNewConversation}>
@@ -93,13 +125,26 @@ function CommandRail({
         <span>新建调优</span>
       </button>
 
-      <label className="search-card">
-        <span className="sr-only">会话检索</span>
-        <div className="search-input">
-          <Search size={15} />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索会话标题" />
-        </div>
-      </label>
+      {searchOpen && (
+        <label className="search-card">
+          <span className="sr-only">会话检索</span>
+          <div className="search-input">
+            <Search size={15} />
+            <input
+              ref={searchInputRef}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setSearchOpen(false);
+                  setQuery("");
+                }
+              }}
+              placeholder="搜索会话标题"
+            />
+          </div>
+        </label>
+      )}
 
       <div className="conversation-list">
         <span className="section-label">{query ? "匹配会话" : "最近会话"}</span>
@@ -107,7 +152,6 @@ function CommandRail({
           <div key={conversation.id} className={conversation.id === activeConversationId ? "conversation-row active" : "conversation-row"}>
             <button className="conversation" onClick={() => onSelectConversation(conversation.id)}>
               <strong>{conversation.title}</strong>
-              <span>{formatTime(conversation.updatedAt)}</span>
             </button>
             <button className="conversation-delete" aria-label={`删除 ${conversation.title}`} title="删除会话" onClick={() => onDeleteConversation(conversation.id)}>
               <Trash2 size={14} />
@@ -123,9 +167,14 @@ function CommandRail({
           <strong>{user.displayName}</strong>
           <span>{user.role}</span>
         </div>
-        <button className="icon-button" aria-label="退出登录" title="退出登录" onClick={onLogout}>
-          <LogOut size={16} />
-        </button>
+        <div className="sidebar-footer-actions">
+          <button className="icon-button" aria-label={theme === "dark" ? "切换到浅色" : "切换到深色"} title={theme === "dark" ? "切换到浅色" : "切换到深色"} onClick={onToggleTheme}>
+            {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
+          <button className="icon-button" aria-label="退出登录" title="退出登录" onClick={onLogout}>
+            <LogOut size={16} />
+          </button>
+        </div>
       </div>
     </aside>
   );
@@ -144,15 +193,15 @@ function TopbarIcon({ label, active = false, onClick, children }: { label: strin
   );
 }
 
-function formatTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
+function routeTitle(route: string, conversationTitle?: string) {
+  if (route.startsWith("/admin/model")) {
+    return "模型配置";
   }
-  return date.toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
+  if (route.startsWith("/admin/skills")) {
+    return "技能约束";
+  }
+  if (route.startsWith("/admin/rules")) {
+    return "规则目录";
+  }
+  return conversationTitle || "新建调优";
 }
