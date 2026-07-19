@@ -135,6 +135,20 @@ class ReportTextParserTest {
     }
 
     @Test
+    void keepsAStandardMysqlTabularExplainWithTypeAndExtraColumns() {
+        String report = "SQL: SELECT id FROM orders WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 50\n"
+                + "EXPLAIN:\n"
+                + "| id | select_type | table | type | possible_keys | key | rows | Extra |\n"
+                + "| 1 | SIMPLE | orders | ALL | idx_tenant | NULL | 12000000 | Using where; Using filesort |";
+
+        ParsedReport result = parser.parse(report);
+
+        assertThat(result.getExplainText())
+                .contains("select_type", "possible_keys", "ALL", "Using filesort");
+        assertThat(result.getWarnings()).noneMatch(warning -> warning.contains("未包含可识别的计划算子"));
+    }
+
+    @Test
     void recognizesReturnedRowsAndIoMetricsWithoutPromotingHistoricalClaimsToEvidence() {
         String report = "SQL: SELECT id FROM orders WHERE tenant_id = ?\n"
                 + "平均耗时: 2008ms\n"

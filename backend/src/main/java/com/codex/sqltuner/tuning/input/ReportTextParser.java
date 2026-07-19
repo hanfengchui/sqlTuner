@@ -71,7 +71,9 @@ public class ReportTextParser {
                     + "\\bTABLE\\s+(?:ACCESS\\s+)?(?:FULL|RANGE|GET|SCAN)\\b|"
                     + "\\bINDEX\\s+(?:SCAN|RANGE|LOOKUP|UNIQUE)\\b|\\bNESTED[ _-]*LOOP\\b|\\bHASH\\s+JOIN\\b|"
                     + "\\bMERGE\\s+JOIN\\b|\\bPX\\s+(?:COORDINATOR|SEND|RECEIVE)\\b|\\bEXCHANGE\\b|"
-                    + "\\bSUBPLAN\\b|\\bEST\\.?\\s*ROWS\\b|\\bSORT\\b|\\bGROUP\\s+BY\\b)");
+                    + "\\bSUBPLAN\\b|\\bEST\\.?\\s*ROWS\\b|\\bSORT\\b|\\bGROUP\\s+BY\\b|"
+                    + "\\bSELECT_TYPE\\b|\\bPOSSIBLE_KEYS\\b|\\bACCESS_TYPE\\b|\\bROWS_EXAMINED_PER_SCAN\\b|"
+                    + "\\bUSING\\s+(?:WHERE|FILESORT|TEMPORARY|INDEX(?:\\s+CONDITION)?)\\b)");
 
     private static final List<Pattern> SQL_END_LABELS = Arrays.asList(
             EXECUTIONS_LABEL, CPU_LABEL, DURATION_LABEL, AVERAGE_ROWS_FIELD, LOGICAL_READS_FIELD,

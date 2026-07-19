@@ -527,15 +527,14 @@ class TuningHarnessServiceTest {
         assertThat(second.getTableStatsText()).contains("orders: 12000000 行");
 
         String planText = "EXPLAIN:\n"
-                + "| ID | OPERATOR | NAME | EST. ROWS |\n"
-                + "| 0 | TABLE FULL SCAN | orders | 12000000 |\n"
-                + "| 1 | SORT | orders | 50 |";
+                + "| id | select_type | table | type | possible_keys | key | rows | Extra |\n"
+                + "| 1 | SIMPLE | orders | ALL | idx_orders_tenant | NULL | 12000000 | Using where; Using filesort |";
         CreateTuningTaskRequest plan = followUp(second, planText);
         SqlTuningTask third = service.createTask(1L, plan);
 
         assertThat(third.getRuntimeMetricsText()).contains("平均耗时: 1860ms", "逻辑读: 2400000");
         assertThat(third.getTableStatsText()).contains("12000000");
-        assertThat(third.getExplainText()).contains("TABLE FULL SCAN", "SORT");
+        assertThat(third.getExplainText()).contains("select_type", "ALL", "Using filesort");
 
         String metadataText = "OB Version: 4.3.5.1\n"
                 + "表结构:\nCREATE TABLE orders ("
@@ -546,7 +545,7 @@ class TuningHarnessServiceTest {
 
         assertThat(fourth.getRuntimeMetricsText()).contains("平均耗时: 1860ms", "逻辑读: 2400000");
         assertThat(fourth.getTableStatsText()).contains("12000000");
-        assertThat(fourth.getExplainText()).contains("TABLE FULL SCAN", "SORT");
+        assertThat(fourth.getExplainText()).contains("select_type", "ALL", "Using filesort");
         assertThat(fourth.getSchemaText()).contains("CREATE TABLE orders");
         assertThat(fourth.getIndexText()).contains("idx_orders_tenant");
         assertThat(fourth.getObVersion()).isEqualTo("4.3.5.1");
