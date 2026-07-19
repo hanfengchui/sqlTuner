@@ -5,6 +5,7 @@ import com.codex.sqltuner.conversation.ConversationRepository;
 import com.codex.sqltuner.conversation.Message;
 import com.codex.sqltuner.conversation.MessageRole;
 import com.codex.sqltuner.llm.LlmClient;
+import com.codex.sqltuner.llm.LlmCallException;
 import com.codex.sqltuner.llm.LlmRequest;
 import com.codex.sqltuner.llm.LlmRequestImage;
 import com.codex.sqltuner.llm.LlmResponse;
@@ -508,17 +509,28 @@ public class TuningHarnessService {
         for (TaskInputImage image : images) {
             requestImages.add(new LlmRequestImage(image.toDataUrl()));
         }
-        LlmResponse response = llmClient.analyze(new LlmRequest(
-                VISION_SYSTEM_PROMPT,
-                VISION_EXTRACTION_PROMPT,
-                false,
-                null,
-                requestImages));
-        VisionExtractionResult vision = parseVisionExtractionAndRepairOnce(task, response, requestImages);
-        task.setPlanImageFacts(summarizeVision(vision));
-        addArtifact(task, "planImageVision",
-                vision.isReadable() ? "图片执行计划视觉抽取完成" : "图片不可读，保留提示但不计入证据目录",
-                vision);
+        try {
+            LlmResponse response = llmClient.analyze(new LlmRequest(
+                    VISION_SYSTEM_PROMPT,
+                    VISION_EXTRACTION_PROMPT,
+                    false,
+                    null,
+                    requestImages));
+            VisionExtractionResult vision = parseVisionExtractionAndRepairOnce(task, response, requestImages);
+            task.setPlanImageFacts(summarizeVision(vision));
+            addArtifact(task, "planImageVision",
+                    vision.isReadable() ? "图片执行计划视觉抽取完成" : "图片不可读，保留提示但不计入证据目录",
+                    vision);
+        } catch (LlmCallException error) {
+            VisionExtractionResult unavailable = new VisionExtractionResult();
+            unavailable.setReadable(false);
+            unavailable.getWarnings().add("视觉模型调用失败，图片未计入证据目录");
+            unavailable.setRawTextSummary("视觉模型调用失败，请补充清晰截图或文本 EXPLAIN");
+            task.setPlanImageFacts(summarizeVision(unavailable));
+            addArtifact(task, "planImageVisionUnavailable",
+                    "视觉模型暂不可用，已跳过图片并继续文本 SQL 分析",
+                    error.getClass().getSimpleName());
+        }
     }
 
     private VisionExtractionResult parseVisionExtractionAndRepairOnce(SqlTuningTask task,

@@ -3,6 +3,7 @@ package com.codex.sqltuner.tuning;
 import com.codex.sqltuner.config.QueueProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.TransientDataAccessException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -51,9 +52,21 @@ public class TuningQueueWorker {
 
     @Scheduled(fixedDelay = 1000L)
     public void dispatch() {
-        requeueExpiredLeasesAndPublish();
+        try {
+            requeueExpiredLeasesAndPublish();
+        } catch (TransientDataAccessException error) {
+            log.warn("dispatch deferred after transient DB conflict: {}", error.getClass().getSimpleName());
+            return;
+        }
         while (permits.tryAcquire()) {
-            final SqlTuningTask task = taskRepository.claimNext(leaseOwner);
+            final SqlTuningTask task;
+            try {
+                task = taskRepository.claimNext(leaseOwner);
+            } catch (TransientDataAccessException error) {
+                permits.release();
+                log.warn("dispatch deferred after transient DB conflict: {}", error.getClass().getSimpleName());
+                return;
+            }
             if (task == null) {
                 permits.release();
                 return;
@@ -81,12 +94,16 @@ public class TuningQueueWorker {
 
     @Scheduled(fixedDelayString = "${app.queue.heartbeat-seconds:15}000")
     public void heartbeat() {
-        // 长模型调用必须持续续租，避免 90 秒后被其他 worker 重复领取。
-        int renewed = taskRepository.renewLeases(leaseOwner);
-        if (renewed > 0) {
-            log.info("heartbeat result 结果: leaseOwner: {}, renewed: {}", leaseOwner, renewed);
+        try {
+            // 长模型调用必须持续续租，避免 90 秒后被其他 worker 重复领取。
+            int renewed = taskRepository.renewLeases(leaseOwner);
+            if (renewed > 0) {
+                log.info("heartbeat result 结果: leaseOwner: {}, renewed: {}", leaseOwner, renewed);
+            }
+            requeueExpiredLeasesAndPublish();
+        } catch (TransientDataAccessException error) {
+            log.warn("heartbeat deferred after transient DB conflict: {}", error.getClass().getSimpleName());
         }
-        requeueExpiredLeasesAndPublish();
     }
 
     private void handleFailure(SqlTuningTask task, Exception e) {
