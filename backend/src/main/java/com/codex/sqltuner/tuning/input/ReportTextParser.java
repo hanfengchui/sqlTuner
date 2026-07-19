@@ -84,14 +84,7 @@ public class ReportTextParser {
             TABLE_STATS_LABEL, OB_VERSION_LABEL);
 
     public ParsedReport parse(String input) {
-        if (input == null || input.trim().isEmpty()) {
-            throw new IllegalArgumentException("报告文本不能为空");
-        }
-        if (input.getBytes(StandardCharsets.UTF_8).length > MAX_INPUT_BYTES) {
-            throw new IllegalArgumentException("报告文本不能超过 128 KiB");
-        }
-
-        String text = normalize(input);
+        String text = validatedText(input);
         if (looksLikeSql(text)) {
             List<String> warnings = new ArrayList<String>();
             warnings.add("未识别到报告字段，已按纯 SQL 处理；请补充运行指标和文本 EXPLAIN。");
@@ -109,6 +102,48 @@ public class ReportTextParser {
         }
 
         String reportMetricText = reportMetricText(text, sqlLabel.start(), sqlEnd);
+        List<String> warnings = new ArrayList<String>();
+        ParsedEvidence evidence = parseEvidence(text, reportMetricText, warnings, true);
+
+        return new ParsedReport(
+                sql,
+                inferDialect(sql),
+                evidence.runtimeMetricsText,
+                evidence.tableStatsText,
+                evidence.priorAnalysisText,
+                evidence.explainText,
+                evidence.schemaText,
+                evidence.indexText,
+                evidence.obVersion,
+                warnings);
+    }
+
+    /**
+     * Parses a later chat turn that adds evidence to an existing SQL conversation.
+     * The caller supplies the SQL from the previous task; this method intentionally
+     * returns no SQL so a supplemental message can never replace it accidentally.
+     */
+    public ParsedReport parseSupplement(String input) {
+        String text = validatedText(input);
+        List<String> warnings = new ArrayList<String>();
+        ParsedEvidence evidence = parseEvidence(text, text, warnings, false);
+        return new ParsedReport(
+                "",
+                "",
+                evidence.runtimeMetricsText,
+                evidence.tableStatsText,
+                evidence.priorAnalysisText,
+                evidence.explainText,
+                evidence.schemaText,
+                evidence.indexText,
+                evidence.obVersion,
+                warnings);
+    }
+
+    private static ParsedEvidence parseEvidence(String text,
+                                                String reportMetricText,
+                                                List<String> warnings,
+                                                boolean warnWhenPlanMissing) {
         String trustedMetricText = directEvidencePrefix(reportMetricText);
         MetricValue sqlId = extractSqlIdMetric(reportMetricText, trustedMetricText);
         MetricValue executions = extractLabeledMetric(reportMetricText, trustedMetricText, EXECUTIONS_LABEL, Arrays.asList(
@@ -134,26 +169,32 @@ public class ReportTextParser {
         String advice = extractValue(text, ADVICE_LABEL, Arrays.asList(
                 PLAN_LABEL, SCHEMA_LABEL, INDEX_LABEL, TABLE_STATS_LABEL, OB_VERSION_LABEL));
 
-        List<String> warnings = new ArrayList<String>();
         String priorAnalysis = buildPriorAnalysis(rootCause, advice, warnings);
-        PlanExtraction plan = extractPlan(text, warnings);
+        PlanExtraction plan = extractPlan(text, warnings, warnWhenPlanMissing);
         String schemaText = extractSchema(text);
         String indexText = extractIndexText(text, schemaText);
         String explicitStats = extractTableStats(text);
         String tableStats = joinNonEmpty(plan.tableStatsText, explicitStats);
         String obVersion = extractObVersion(text);
 
-        return new ParsedReport(
-                sql,
-                inferDialect(sql),
+        return new ParsedEvidence(
                 buildRuntimeMetrics(sqlId, executions, cpu, duration, averageRows, logicalReads, physicalReads, throttle),
                 tableStats,
                 priorAnalysis,
                 plan.explainText,
                 schemaText,
                 indexText,
-                obVersion,
-                warnings);
+                obVersion);
+    }
+
+    private static String validatedText(String input) {
+        if (input == null || input.trim().isEmpty()) {
+            throw new IllegalArgumentException("报告文本不能为空");
+        }
+        if (input.getBytes(StandardCharsets.UTF_8).length > MAX_INPUT_BYTES) {
+            throw new IllegalArgumentException("报告文本不能超过 128 KiB");
+        }
+        return normalize(input);
     }
 
     private static String normalize(String input) {
@@ -360,10 +401,14 @@ public class ReportTextParser {
         return join(statements);
     }
 
-    private static PlanExtraction extractPlan(String text, List<String> warnings) {
+    private static PlanExtraction extractPlan(String text,
+                                              List<String> warnings,
+                                              boolean warnWhenMissing) {
         Matcher planLabel = PLAN_LABEL.matcher(text);
         if (!planLabel.find()) {
-            warnings.add("报告未提供可识别的文本执行计划，请补充 EXPLAIN。");
+            if (warnWhenMissing) {
+                warnings.add("报告未提供可识别的文本执行计划，请补充 EXPLAIN。");
+            }
             return new PlanExtraction("", "");
         }
 
@@ -444,6 +489,32 @@ public class ReportTextParser {
         private PlanExtraction(String explainText, String tableStatsText) {
             this.explainText = explainText;
             this.tableStatsText = tableStatsText;
+        }
+    }
+
+    private static final class ParsedEvidence {
+        private final String runtimeMetricsText;
+        private final String tableStatsText;
+        private final String priorAnalysisText;
+        private final String explainText;
+        private final String schemaText;
+        private final String indexText;
+        private final String obVersion;
+
+        private ParsedEvidence(String runtimeMetricsText,
+                               String tableStatsText,
+                               String priorAnalysisText,
+                               String explainText,
+                               String schemaText,
+                               String indexText,
+                               String obVersion) {
+            this.runtimeMetricsText = runtimeMetricsText;
+            this.tableStatsText = tableStatsText;
+            this.priorAnalysisText = priorAnalysisText;
+            this.explainText = explainText;
+            this.schemaText = schemaText;
+            this.indexText = indexText;
+            this.obVersion = obVersion;
         }
     }
 }

@@ -251,27 +251,32 @@ public class TuningHarnessService {
     private void inheritConversationContext(CreateTuningTaskRequest request,
                                             SqlTuningTask previousTask,
                                             String submittedText) {
+        ParsedReport supplemental = hasText(submittedText)
+                ? reportTextParser.parseSupplement(submittedText)
+                : null;
+        String suppliedSchema = joinDistinctNonEmpty(
+                request.getSchemaText(), supplemental == null ? null : supplemental.getSchemaText());
+        String suppliedIndexes = joinDistinctNonEmpty(
+                request.getIndexText(), supplemental == null ? null : supplemental.getIndexText());
+        String suppliedExplain = joinDistinctNonEmpty(
+                request.getExplainText(), supplemental == null ? null : supplemental.getExplainText());
+        String suppliedStats = joinDistinctNonEmpty(
+                request.getTableStatsText(), supplemental == null ? null : supplemental.getTableStatsText());
+        String suppliedRuntime = joinDistinctNonEmpty(
+                request.getRuntimeMetricsText(), supplemental == null ? null : supplemental.getRuntimeMetricsText());
+
         request.setSqlText(previousTask.getOriginalSql());
         request.setDbDialect(previousTask.getDbDialect());
         request.setInputType("natural_language");
-        if (!hasText(request.getSchemaText())) {
-            request.setSchemaText(previousTask.getSchemaText());
-        }
-        if (!hasText(request.getIndexText())) {
-            request.setIndexText(previousTask.getIndexText());
-        }
-        if (!hasText(request.getExplainText())) {
-            request.setExplainText(previousTask.getExplainText());
-        }
-        if (!hasText(request.getObVersion())) {
-            request.setObVersion(previousTask.getObVersion());
-        }
-        if (!hasText(request.getTableStatsText())) {
-            request.setTableStatsText(previousTask.getTableStatsText());
-        }
-        if (!hasText(request.getRuntimeMetricsText())) {
-            request.setRuntimeMetricsText(previousTask.getRuntimeMetricsText());
-        }
+        request.setSchemaText(joinDistinctNonEmpty(previousTask.getSchemaText(), suppliedSchema));
+        request.setIndexText(joinDistinctNonEmpty(previousTask.getIndexText(), suppliedIndexes));
+        request.setExplainText(joinDistinctNonEmpty(previousTask.getExplainText(), suppliedExplain));
+        request.setTableStatsText(joinDistinctNonEmpty(previousTask.getTableStatsText(), suppliedStats));
+        request.setRuntimeMetricsText(joinDistinctNonEmpty(previousTask.getRuntimeMetricsText(), suppliedRuntime));
+        request.setObVersion(firstNonEmpty(
+                request.getObVersion(),
+                supplemental == null ? null : supplemental.getObVersion(),
+                previousTask.getObVersion()));
         if (!hasText(request.getBusinessInvariants())) {
             request.setBusinessInvariants(previousTask.getBusinessInvariants());
         }
@@ -284,9 +289,14 @@ public class TuningHarnessService {
         String supplementalContext = hasText(submittedText)
                 ? "本轮用户补充（作为待核验背景）:\n" + submittedText.trim()
                 : "本轮用户仅补充了执行计划截图";
+        String parserWarnings = supplemental != null && !supplemental.getWarnings().isEmpty()
+                ? "文本补充解析提示: " + supplemental.getWarnings()
+                : null;
         request.setBusinessContext(joinNonEmpty(
                 previousTask.getBusinessContext(),
                 request.getBusinessContext(),
+                supplemental == null ? null : supplemental.getPriorAnalysisText(),
+                parserWarnings,
                 supplementalContext));
     }
 
@@ -1197,6 +1207,29 @@ public class TuningHarnessService {
             builder.append(value.trim());
         }
         return builder.toString();
+    }
+
+    private String joinDistinctNonEmpty(String... values) {
+        java.util.LinkedHashSet<String> distinct = new java.util.LinkedHashSet<String>();
+        if (values != null) {
+            for (String value : values) {
+                if (hasText(value)) {
+                    distinct.add(value.trim());
+                }
+            }
+        }
+        return joinNonEmpty(distinct.toArray(new String[distinct.size()]));
+    }
+
+    private String firstNonEmpty(String... values) {
+        if (values != null) {
+            for (String value : values) {
+                if (hasText(value)) {
+                    return value.trim();
+                }
+            }
+        }
+        return null;
     }
 
     private boolean hasText(String value) {

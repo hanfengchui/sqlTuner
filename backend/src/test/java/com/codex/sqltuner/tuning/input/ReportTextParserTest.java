@@ -230,6 +230,31 @@ class ReportTextParserTest {
     }
 
     @Test
+    void parsesFollowUpEvidenceWithoutRequiringSqlAgain() {
+        ParsedReport metrics = parser.parseSupplement("SQL ID: SYNTH-1\n"
+                + "执行次数: 850\n平均耗时: 1860ms\n平均返回行数: 50\n"
+                + "逻辑读: 2400000\n物理读: 18300\n"
+                + "表统计:\norders: 12000000 行\ncustomers: 400000 行");
+
+        assertThat(metrics.getExtractedSql()).isEmpty();
+        assertThat(metrics.getRuntimeMetricsText())
+                .contains("SQL ID: SYNTH-1", "平均耗时: 1860ms", "平均返回行数: 50 行")
+                .contains("逻辑读: 2400000", "物理读: 18300");
+        assertThat(metrics.getTableStatsText()).contains("orders: 12000000 行", "customers: 400000 行");
+
+        ParsedReport planAndMetadata = parser.parseSupplement("OB Version: 4.3.5.1\n"
+                + "EXPLAIN:\n| ID | OPERATOR | NAME | EST. ROWS |\n"
+                + "| 0 | TABLE FULL SCAN | orders | 12000000 |\n"
+                + "表结构:\nCREATE TABLE orders (id BIGINT PRIMARY KEY, tenant_id BIGINT);\n"
+                + "现有索引:\nCREATE INDEX idx_orders_tenant ON orders(tenant_id);");
+
+        assertThat(planAndMetadata.getExplainText()).contains("TABLE FULL SCAN", "12000000");
+        assertThat(planAndMetadata.getSchemaText()).contains("CREATE TABLE orders");
+        assertThat(planAndMetadata.getIndexText()).contains("idx_orders_tenant");
+        assertThat(planAndMetadata.getObVersion()).isEqualTo("4.3.5.1");
+    }
+
+    @Test
     void rejectsInputLargerThan128KiB() {
         StringBuilder oversized = new StringBuilder("SELECT * FROM t WHERE note = '");
         while (oversized.length() <= ReportTextParser.MAX_INPUT_BYTES) {

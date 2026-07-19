@@ -504,6 +504,58 @@ class TuningHarnessServiceTest {
     }
 
     @Test
+    void followUpTextEvidenceIsParsedAndAccumulatedAcrossConversationTurns() {
+        TuningHarnessService service = service();
+        CreateTuningTaskRequest initial = new CreateTuningTaskRequest();
+        initial.setDbDialect("OceanBase MySQL");
+        initial.setSqlText("SELECT o.id, o.created_at FROM orders o "
+                + "WHERE DATE(o.created_at) = ? AND o.tenant_id = ? "
+                + "ORDER BY o.created_at DESC LIMIT 50");
+        initial.setDeepAnalysis(Boolean.FALSE);
+        SqlTuningTask first = service.createTask(1L, initial);
+
+        String metricsText = "SQL ID: SYNTH-1\n"
+                + "执行次数: 850\n平均耗时: 1860ms\n平均返回行数: 50\n"
+                + "逻辑读: 2400000\n物理读: 18300\n"
+                + "表统计:\norders: 12000000 行";
+        CreateTuningTaskRequest metrics = followUp(first, metricsText);
+        SqlTuningTask second = service.createTask(1L, metrics);
+
+        assertThat(second.getOriginalSql()).isEqualTo(first.getOriginalSql());
+        assertThat(second.getRuntimeMetricsText())
+                .contains("平均耗时: 1860ms", "平均返回行数: 50 行", "逻辑读: 2400000", "物理读: 18300");
+        assertThat(second.getTableStatsText()).contains("orders: 12000000 行");
+
+        String planText = "EXPLAIN:\n"
+                + "| ID | OPERATOR | NAME | EST. ROWS |\n"
+                + "| 0 | TABLE FULL SCAN | orders | 12000000 |\n"
+                + "| 1 | SORT | orders | 50 |";
+        CreateTuningTaskRequest plan = followUp(second, planText);
+        SqlTuningTask third = service.createTask(1L, plan);
+
+        assertThat(third.getRuntimeMetricsText()).contains("平均耗时: 1860ms", "逻辑读: 2400000");
+        assertThat(third.getTableStatsText()).contains("12000000");
+        assertThat(third.getExplainText()).contains("TABLE FULL SCAN", "SORT");
+
+        String metadataText = "OB Version: 4.3.5.1\n"
+                + "表结构:\nCREATE TABLE orders ("
+                + "id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, created_at DATETIME NOT NULL);\n"
+                + "现有索引:\nCREATE INDEX idx_orders_tenant ON orders(tenant_id);";
+        CreateTuningTaskRequest metadata = followUp(third, metadataText);
+        SqlTuningTask fourth = service.createTask(1L, metadata);
+
+        assertThat(fourth.getRuntimeMetricsText()).contains("平均耗时: 1860ms", "逻辑读: 2400000");
+        assertThat(fourth.getTableStatsText()).contains("12000000");
+        assertThat(fourth.getExplainText()).contains("TABLE FULL SCAN", "SORT");
+        assertThat(fourth.getSchemaText()).contains("CREATE TABLE orders");
+        assertThat(fourth.getIndexText()).contains("idx_orders_tenant");
+        assertThat(fourth.getObVersion()).isEqualTo("4.3.5.1");
+        assertThat(conversationRepository.listMessages(first.getConversationId()))
+                .extracting("content")
+                .containsExactly(initial.getSqlText(), metricsText, planText, metadataText);
+    }
+
+    @Test
     void nonSqlMessageWithoutConversationSqlIsStillRejected() {
         TuningHarnessService service = service();
         CreateTuningTaskRequest request = new CreateTuningTaskRequest();
@@ -811,6 +863,16 @@ class TuningHarnessServiceTest {
         CreateTuningTaskRequest request = new CreateTuningTaskRequest();
         request.setDbDialect("OceanBase/MySQL");
         request.setSqlText("select id from orders where status = 'PAID'");
+        request.setDeepAnalysis(Boolean.FALSE);
+        return request;
+    }
+
+    private CreateTuningTaskRequest followUp(SqlTuningTask previous, String text) {
+        CreateTuningTaskRequest request = new CreateTuningTaskRequest();
+        request.setConversationId(previous.getConversationId());
+        request.setDbDialect("OceanBase MySQL");
+        request.setSqlText(text);
+        request.setInputType("natural_language");
         request.setDeepAnalysis(Boolean.FALSE);
         return request;
     }
