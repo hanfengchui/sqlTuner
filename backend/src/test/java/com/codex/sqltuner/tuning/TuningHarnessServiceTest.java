@@ -445,6 +445,80 @@ class TuningHarnessServiceTest {
     }
 
     @Test
+    void followUpPlanImageInheritsLatestConversationSqlAndContext() {
+        TuningHarnessService service = service();
+        CreateTuningTaskRequest initial = new CreateTuningTaskRequest();
+        initial.setDbDialect("OceanBase Oracle");
+        initial.setSqlText("select id from orders where tenant_id = ? and rownum <= 10");
+        initial.setSchemaText("create table orders (id number primary key, tenant_id number)");
+        initial.setIndexText("create index idx_orders_tenant on orders(tenant_id)");
+        initial.setRuntimeMetricsText("平均耗时: 2008ms");
+        initial.setBusinessInvariants("结果集必须保持一致");
+        initial.setAllowedActions(Arrays.asList("diagnosis", "validation"));
+        initial.setDeepAnalysis(Boolean.FALSE);
+        SqlTuningTask first = service.createTask(1L, initial);
+
+        CreateTuningTaskRequest followUp = new CreateTuningTaskRequest();
+        followUp.setConversationId(first.getConversationId());
+        followUp.setDbDialect("OceanBase MySQL");
+        followUp.setSqlText("执行计划图片如下");
+        followUp.setInputType("natural_language");
+        followUp.setPlanImages(Arrays.asList(planImage("plan.png", pngDataUrl())));
+        followUp.setDeepAnalysis(Boolean.FALSE);
+
+        SqlTuningTask second = service.createTask(1L, followUp);
+
+        assertThat(second.getConversationId()).isEqualTo(first.getConversationId());
+        assertThat(second.getOriginalSql()).isEqualTo(first.getOriginalSql());
+        assertThat(second.getDbDialect()).isEqualTo("OceanBase Oracle");
+        assertThat(second.getInputType()).isEqualTo("natural_language");
+        assertThat(second.getSchemaText()).isEqualTo(first.getSchemaText());
+        assertThat(second.getIndexText()).isEqualTo(first.getIndexText());
+        assertThat(second.getRuntimeMetricsText()).isEqualTo(first.getRuntimeMetricsText());
+        assertThat(second.getBusinessInvariants()).isEqualTo(first.getBusinessInvariants());
+        assertThat(second.getAllowedActions()).containsExactly("diagnosis", "validation");
+        assertThat(second.getBusinessContext()).contains("本轮用户补充", "执行计划图片如下");
+        assertThat(second.getInputImageCount()).isEqualTo(1);
+        assertThat(conversationRepository.listMessages(first.getConversationId()))
+                .extracting("content")
+                .containsExactly(initial.getSqlText(), "执行计划图片如下");
+    }
+
+    @Test
+    void followUpMayReferenceSqlIdWithoutRepeatingSqlBody() {
+        TuningHarnessService service = service();
+        SqlTuningTask first = service.createTask(1L, sqlOnlyRequest());
+        CreateTuningTaskRequest followUp = new CreateTuningTaskRequest();
+        followUp.setConversationId(first.getConversationId());
+        followUp.setDbDialect("OceanBase MySQL");
+        followUp.setSqlText("SQL ID: B05FC9141039983E7E33ECD3A563E37D\n执行计划截图如下");
+        followUp.setInputType("report_text");
+        followUp.setPlanImages(Arrays.asList(planImage("plan.png", pngDataUrl())));
+        followUp.setDeepAnalysis(Boolean.FALSE);
+
+        SqlTuningTask second = service.createTask(1L, followUp);
+
+        assertThat(second.getOriginalSql()).isEqualTo(first.getOriginalSql());
+        assertThat(second.getBusinessContext()).contains("SQL ID: B05FC9141039983E7E33ECD3A563E37D");
+    }
+
+    @Test
+    void nonSqlMessageWithoutConversationSqlIsStillRejected() {
+        TuningHarnessService service = service();
+        CreateTuningTaskRequest request = new CreateTuningTaskRequest();
+        request.setDbDialect("OceanBase Oracle");
+        request.setSqlText("执行计划图片如下");
+        request.setInputType("natural_language");
+        request.setPlanImages(Arrays.asList(planImage("plan.png", pngDataUrl())));
+        request.setDeepAnalysis(Boolean.FALSE);
+
+        assertThatThrownBy(() -> service.createTask(1L, request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("先提供").hasMessageContaining("SQL");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM conversations", Integer.class)).isZero();
+    }
+
+    @Test
     void imagePersistenceIsIdempotentForSameHashAndRejectsDifferentContent() {
         TuningHarnessService service = service();
         CreateTuningTaskRequest request = sqlOnlyRequest();

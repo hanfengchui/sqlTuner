@@ -24,9 +24,10 @@ export interface SqlInputValue {
 interface SqlInputPanelProps {
   loading: boolean;
   onSubmit: (value: SqlInputValue) => void | Promise<void>;
+  allowImageOnly?: boolean;
 }
 
-export function SqlInputPanel({ loading, onSubmit }: SqlInputPanelProps) {
+export function SqlInputPanel({ loading, onSubmit, allowImageOnly = false }: SqlInputPanelProps) {
   const [dbDialect, setDbDialect] = useState<SqlDialect>("OceanBase MySQL");
   const [sqlText, setSqlText] = useState("");
   const [deepAnalysis, setDeepAnalysis] = useState(false);
@@ -46,13 +47,14 @@ export function SqlInputPanel({ loading, onSubmit }: SqlInputPanelProps) {
   }, [sqlText]);
 
   async function submit() {
-    if (!sqlText.trim() || loading) {
+    const messageText = sqlText.trim() ? sqlText : "补充执行计划截图";
+    if (loading || (!sqlText.trim() && (!allowImageOnly || planImages.length === 0))) {
       return;
     }
     const nextValue: SqlInputValue = {
       dbDialect,
-      sqlText,
-      inputType: detectInputType(sqlText),
+      sqlText: messageText,
+      inputType: detectInputType(messageText),
       planImages: planImages.map(({ name, dataUrl }) => ({ name, dataUrl })),
       deepAnalysis
     };
@@ -239,7 +241,7 @@ export function SqlInputPanel({ loading, onSubmit }: SqlInputPanelProps) {
           </label>
           <button
             className="composer-send"
-            disabled={loading || !sqlText.trim()}
+            disabled={loading || (!sqlText.trim() && (!allowImageOnly || planImages.length === 0))}
             onClick={() => void submit()}
             title="提交分析"
             aria-label="提交分析"

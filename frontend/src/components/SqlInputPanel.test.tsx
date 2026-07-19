@@ -7,8 +7,8 @@ function imageFile(name: string, type = "image/png", body = "image-bytes") {
   return new File([body], name, { type });
 }
 
-function renderPanel(onSubmit = vi.fn<(value: SqlInputValue) => void>()) {
-  render(<SqlInputPanel loading={false} onSubmit={onSubmit} />);
+function renderPanel(onSubmit = vi.fn<(value: SqlInputValue) => void>(), allowImageOnly = false) {
+  render(<SqlInputPanel loading={false} onSubmit={onSubmit} allowImageOnly={allowImageOnly} />);
   return onSubmit;
 }
 
@@ -105,6 +105,22 @@ describe("SqlInputPanel", () => {
     expect(submitted.planImages[0].dataUrl).toMatch(/^data:image\/png;base64,/);
     await waitFor(() => expect(screen.queryByText("plan.png")).not.toBeInTheDocument());
     expect(editor).toHaveValue("");
+  });
+
+  it("submits a screenshot-only follow-up when conversation context is available", async () => {
+    const onSubmit = renderPanel(undefined, true);
+    const input = screen.getByLabelText("选择执行计划截图文件");
+    await userEvent.upload(input, imageFile("follow-up-plan.png", "image/png", "plan-content"));
+    await screen.findByText("follow-up-plan.png");
+
+    await userEvent.click(screen.getByRole("button", { name: "提交分析" }));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({
+      sqlText: "补充执行计划截图",
+      inputType: "natural_language"
+    });
+    expect(onSubmit.mock.calls[0][0].planImages).toHaveLength(1);
   });
 
   it("keeps the draft when task creation is rejected", async () => {
