@@ -116,6 +116,14 @@ public class TuningTaskRepository {
         return tasks.get(0);
     }
 
+    public SqlTuningTask findLatestForConversation(Long conversationId, Long userId) {
+        List<SqlTuningTask> tasks = jdbcTemplate.query(
+                "SELECT * FROM tuning_tasks WHERE conversation_id = ? AND user_id = ? "
+                        + "ORDER BY created_at DESC, id DESC LIMIT 1",
+                mapper(), conversationId, userId);
+        return tasks.isEmpty() ? null : tasks.get(0);
+    }
+
     public SqlTuningTask findByIdempotencyKey(Long userId, String idempotencyKey) {
         if (idempotencyKey == null || idempotencyKey.trim().isEmpty()) {
             return null;

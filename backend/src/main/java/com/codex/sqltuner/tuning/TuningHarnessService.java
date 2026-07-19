@@ -45,6 +45,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 @Service
 public class TuningHarnessService {
@@ -62,6 +63,8 @@ public class TuningHarnessService {
             "请从用户上传的 OceanBase SQL 执行计划截图或诊断截图中抽取可见事实。"
                     + "只返回严格 JSON，不要解释。字段必须包含 readable, operators, tables, rowEstimates, warnings, rawTextSummary。"
                     + "如果图片不可读，readable=false，并在 warnings 说明。不得编造图片中看不到的表、行数、算子。";
+    private static final Pattern SQL_FIELD_CLAIM = Pattern.compile(
+            "(?i)(?<![A-Za-z0-9_])SQL(?!\\s*ID\\b)\\s*[:：]");
     private final TuningTaskRepository taskRepository;
     private final ConversationRepository conversationRepository;
     private final SqlSanitizer sanitizer;
@@ -157,17 +160,20 @@ public class TuningHarnessService {
     @Transactional
     public SqlTuningTask createTask(Long userId, CreateTuningTaskRequest request, String idempotencyKey) {
         String submittedText = request.getSqlText();
-        normalizePastedReport(request);
+        Long conversationId = request.getConversationId();
+        SqlTuningTask previousTask = null;
+        if (conversationId != null) {
+            // 与过期会话清理共用父行锁，避免用户继续旧会话时被清理任务并发删除。
+            conversationRepository.getForUserForUpdate(conversationId, userId);
+            previousTask = taskRepository.findLatestForConversation(conversationId, userId);
+        }
+        boolean inheritedConversationContext = normalizeInput(request, previousTask, submittedText);
         SqlDialect dialect = SqlDialect.from(request.getDbDialect());
         validateRequest(request, dialect);
         List<TaskInputImage> inputImages = inputImageValidator.validate(request.getPlanImages());
-        Long conversationId = request.getConversationId();
         if (conversationId == null) {
             Conversation conversation = conversationRepository.create(userId, "新建调优");
             conversationId = conversation.getId();
-        } else {
-            // 与过期会话清理共用父行锁，避免用户继续旧会话时被清理任务并发删除。
-            conversationRepository.getForUserForUpdate(conversationId, userId);
         }
 
         SqlTuningTask task = new SqlTuningTask();
@@ -186,6 +192,9 @@ public class TuningHarnessService {
         task.setBusinessInvariants(request.getBusinessInvariants());
         task.setAllowedActions(request.getAllowedActions());
         task.setInputImageCount(inputImages.size());
+        if (inheritedConversationContext && inputImages.isEmpty() && previousTask != null) {
+            task.setPlanImageFacts(previousTask.getPlanImageFacts());
+        }
         task.setDeepAnalysis(Boolean.TRUE.equals(request.getDeepAnalysis()));
         task.setStatus(TaskStatus.QUEUED);
         task.setStatusMessage("已收到调优请求");
@@ -204,8 +213,80 @@ public class TuningHarnessService {
         taskRepository.update(task);
         eventBroker.publish(task);
         log.info("createTask result 结果: taskId: {}, userId: {}, conversationId: {}, dbDialect: {}, inputType: {}, inputLength: {}",
-                task.getId(), userId, conversationId, task.getDbDialect(), task.getInputType(), submittedText.length());
+                task.getId(), userId, conversationId, task.getDbDialect(), task.getInputType(), submittedText == null ? 0 : submittedText.length());
         return task;
+    }
+
+    private boolean normalizeInput(CreateTuningTaskRequest request,
+                                   SqlTuningTask previousTask,
+                                   String submittedText) {
+        try {
+            normalizePastedReport(request);
+            return false;
+        } catch (IllegalArgumentException error) {
+            if (!isSupplementalMessage(request, error)) {
+                throw error;
+            }
+            if (previousTask == null || !hasText(previousTask.getOriginalSql())) {
+                throw new IllegalArgumentException("请先提供一条可解析的 SQL，再补充执行计划或其他证据");
+            }
+            inheritConversationContext(request, previousTask, submittedText);
+            return true;
+        }
+    }
+
+    private boolean isSupplementalMessage(CreateTuningTaskRequest request, IllegalArgumentException error) {
+        if (!"报告中未找到 SQL 字段".equals(error.getMessage())) {
+            return false;
+        }
+        String inputType = request.getInputType();
+        if (hasText(inputType) && "sql".equalsIgnoreCase(inputType.trim())) {
+            return false;
+        }
+        String text = request.getSqlText();
+        return !hasText(text) || !SQL_FIELD_CLAIM.matcher(text).find();
+    }
+
+    private void inheritConversationContext(CreateTuningTaskRequest request,
+                                            SqlTuningTask previousTask,
+                                            String submittedText) {
+        request.setSqlText(previousTask.getOriginalSql());
+        request.setDbDialect(previousTask.getDbDialect());
+        request.setInputType("natural_language");
+        if (!hasText(request.getSchemaText())) {
+            request.setSchemaText(previousTask.getSchemaText());
+        }
+        if (!hasText(request.getIndexText())) {
+            request.setIndexText(previousTask.getIndexText());
+        }
+        if (!hasText(request.getExplainText())) {
+            request.setExplainText(previousTask.getExplainText());
+        }
+        if (!hasText(request.getObVersion())) {
+            request.setObVersion(previousTask.getObVersion());
+        }
+        if (!hasText(request.getTableStatsText())) {
+            request.setTableStatsText(previousTask.getTableStatsText());
+        }
+        if (!hasText(request.getRuntimeMetricsText())) {
+            request.setRuntimeMetricsText(previousTask.getRuntimeMetricsText());
+        }
+        if (!hasText(request.getBusinessInvariants())) {
+            request.setBusinessInvariants(previousTask.getBusinessInvariants());
+        }
+        if (request.getAllowedActions() == null || request.getAllowedActions().isEmpty()) {
+            request.setAllowedActions(previousTask.getAllowedActions() == null
+                    ? null
+                    : new ArrayList<String>(previousTask.getAllowedActions()));
+        }
+
+        String supplementalContext = hasText(submittedText)
+                ? "本轮用户补充（作为待核验背景）:\n" + submittedText.trim()
+                : "本轮用户仅补充了执行计划截图";
+        request.setBusinessContext(joinNonEmpty(
+                previousTask.getBusinessContext(),
+                request.getBusinessContext(),
+                supplementalContext));
     }
 
     private void normalizePastedReport(CreateTuningTaskRequest request) {
@@ -1087,6 +1168,23 @@ public class TuningHarnessService {
             return "sql";
         }
         return "natural_language";
+    }
+
+    private String joinNonEmpty(String... values) {
+        StringBuilder builder = new StringBuilder();
+        if (values == null) {
+            return "";
+        }
+        for (String value : values) {
+            if (!hasText(value)) {
+                continue;
+            }
+            if (builder.length() > 0) {
+                builder.append("\n\n");
+            }
+            builder.append(value.trim());
+        }
+        return builder.toString();
     }
 
     private boolean hasText(String value) {

@@ -99,7 +99,7 @@ export function ChatWorkspacePage({ activeConversationId, activeTask, onTaskCrea
         <ConversationStream messages={messages} tasksById={tasksById} pendingTask={task} pendingStream={modelStream} />
         {(error || taskError) && <div className="form-error chat-error">{error || taskError}</div>}
         <div className="composer-shell">
-          <SqlInputPanel loading={submitting} onSubmit={submit} />
+          <SqlInputPanel loading={submitting} onSubmit={submit} allowImageOnly={Boolean(activeConversationId)} />
         </div>
       </div>
     </div>
