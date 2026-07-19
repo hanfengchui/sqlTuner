@@ -3,6 +3,7 @@ package com.codex.sqltuner.tuning;
 import com.codex.sqltuner.config.QueueProperties;
 import com.codex.sqltuner.conversation.ConversationRepository;
 import com.codex.sqltuner.llm.ConfigurableLlmClient;
+import com.codex.sqltuner.llm.LlmCallException;
 import com.codex.sqltuner.llm.LlmClient;
 import com.codex.sqltuner.llm.LlmProperties;
 import com.codex.sqltuner.llm.LlmRequest;
@@ -560,6 +561,24 @@ class TuningHarnessServiceTest {
     }
 
     @Test
+    void unavailableVisionModelDegradesImageEvidenceWithoutFailingSqlAnalysis() {
+        VisionFailingLlmClient client = new VisionFailingLlmClient(mockContent());
+        TuningHarnessService service = service(client);
+        CreateTuningTaskRequest request = sqlOnlyRequest();
+        request.setPlanImages(Arrays.asList(planImage("plan.png", pngDataUrl())));
+
+        SqlTuningTask task = service.createTask(1L, request);
+        service.run(task);
+
+        assertThat(task.getStatus()).isEqualTo(TaskStatus.DONE);
+        assertThat(task.getPlanImageFacts()).startsWith("readable=false");
+        assertThat(task.getPlanImageFacts()).contains("视觉模型调用失败", "文本 EXPLAIN");
+        assertThat(task.getArtifacts()).extracting("nodeName").contains("planImageVisionUnavailable");
+        assertThat(task.getResult().getContextAssessment().getAvailableEvidence()).doesNotContain("E_PLAN_IMAGE");
+        assertThat(client.callCount()).isEqualTo(2);
+    }
+
+    @Test
     void visionFactsAcceptStructuredRowsAndExtraFieldsWithoutRepair() {
         String structuredVision = "{"
                 + "\"readable\":true,"
@@ -896,6 +915,28 @@ class TuningHarnessServiceTest {
 
         private List<LlmRequest> requests() {
             return requests;
+        }
+    }
+
+    private static final class VisionFailingLlmClient implements LlmClient {
+        private final String textResponse;
+        private final AtomicInteger calls = new AtomicInteger();
+
+        private VisionFailingLlmClient(String textResponse) {
+            this.textResponse = textResponse;
+        }
+
+        @Override
+        public LlmResponse analyze(LlmRequest request) {
+            calls.incrementAndGet();
+            if (request.hasImages()) {
+                throw new LlmCallException("模型调用失败: 400 vision model unsupported", null);
+            }
+            return new LlmResponse("test", "test", textResponse, 1L, false);
+        }
+
+        private int callCount() {
+            return calls.get();
         }
     }
 

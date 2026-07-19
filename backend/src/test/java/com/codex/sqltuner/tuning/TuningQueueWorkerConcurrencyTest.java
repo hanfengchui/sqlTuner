@@ -9,6 +9,7 @@ import com.codex.sqltuner.llm.LlmCallException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DeadlockLoserDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.ArrayList;
@@ -20,12 +21,40 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class TuningQueueWorkerConcurrencyTest {
+    @Test
+    void transientClaimDeadlockDefersDispatchAndReleasesWorkerPermit() {
+        QueueProperties queueProperties = new QueueProperties();
+        queueProperties.setWorkerCount(1);
+        TuningTaskRepository repository = mock(TuningTaskRepository.class);
+        when(repository.requeueExpiredLeases()).thenReturn(new ArrayList<SqlTuningTask>());
+        when(repository.claimNext(anyString()))
+                .thenThrow(new DeadlockLoserDataAccessException("deadlock", null))
+                .thenReturn(null);
+        TuningQueueWorker worker = new TuningQueueWorker(
+                repository,
+                mock(TuningHarnessService.class),
+                new TaskEventBroker(),
+                queueProperties);
+        try {
+            assertThatCode(worker::dispatch).doesNotThrowAnyException();
+            assertThatCode(worker::dispatch).doesNotThrowAnyException();
+            verify(repository, times(2)).claimNext(anyString());
+        } finally {
+            worker.shutdown();
+        }
+    }
+
     @Test
     void stateTransitionDoesNotShortenLeaseRenewedByHeartbeat() {
         JdbcTemplate jdbcTemplate = JdbcTestSupport.jdbcTemplate();
