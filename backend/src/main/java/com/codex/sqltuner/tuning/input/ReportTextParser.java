@@ -13,12 +13,31 @@ import java.util.regex.Pattern;
 @Component
 public class ReportTextParser {
     static final int MAX_INPUT_BYTES = 128 * 1024;
+    public static final String UNVERIFIED_REPORT_METRIC_MARKER = "（报告结论内识别，待核验）";
 
     private static final Pattern SQL_ID_LABEL = Pattern.compile("(?i)(?<![A-Za-z0-9_])SQL\\s*ID\\s*[:：]\\s*");
     private static final Pattern SQL_LABEL = Pattern.compile("(?i)(?<![A-Za-z0-9_])SQL(?!\\s*ID\\b)\\s*[:：]\\s*");
     private static final Pattern EXECUTIONS_LABEL = Pattern.compile("(?<!\\S)执行次数\\s*[:：]\\s*");
     private static final Pattern CPU_LABEL = Pattern.compile("(?i)(?<!\\S)CPU\\s*占比\\s*[:：]\\s*");
     private static final Pattern DURATION_LABEL = Pattern.compile("(?<!\\S)平均耗时\\s*[:：]\\s*");
+    private static final Pattern AVERAGE_ROWS_FIELD = Pattern.compile(
+            "(?im)^[\\t ]*(?:平均返回行数|(?:AVG(?:ERAGE)?[\\t ]+)?ROWS?[\\t ]+RETURNED)"
+                    + "[\\t ]*(?:[:：=][\\t ]*)?(?:仅|约|为)?[\\t ]*(?=[0-9])");
+    private static final Pattern LOGICAL_READS_FIELD = Pattern.compile(
+            "(?im)^[\\t ]*(?:逻辑读(?:取|次数|块数)?|LOGICAL[\\t ]+READS?)"
+                    + "[\\t ]*(?:[:：=][\\t ]*)?(?:约|为)?[\\t ]*(?=[0-9])");
+    private static final Pattern PHYSICAL_READS_FIELD = Pattern.compile(
+            "(?im)^[\\t ]*(?:物理读(?:取|次数|块数)?|PHYSICAL[\\t ]+READS?)"
+                    + "[\\t ]*(?:[:：=][\\t ]*)?(?:约|为)?[\\t ]*(?=[0-9])");
+    private static final Pattern AVERAGE_ROWS_VALUE = Pattern.compile(
+            "(?i)(?<![A-Za-z0-9_])(?:平均返回行数|(?:AVG(?:ERAGE)?\\s+)?ROWS?\\s+RETURNED)"
+                    + "\\s*(?:[:：=]\\s*)?(?:仅|约|为)?\\s*([0-9][0-9,]*(?:\\.[0-9]+)?)\\s*(行|ROWS?)?");
+    private static final Pattern LOGICAL_READS_VALUE = Pattern.compile(
+            "(?i)(?<![A-Za-z0-9_])(?:逻辑读(?:取|次数|块数)?|LOGICAL\\s+READS?)"
+                    + "\\s*(?:[:：=]\\s*)?(?:约|为)?\\s*([0-9][0-9,]*(?:\\.[0-9]+)?)\\s*(次|页|块|KB|MB|GB)?");
+    private static final Pattern PHYSICAL_READS_VALUE = Pattern.compile(
+            "(?i)(?<![A-Za-z0-9_])(?:物理读(?:取|次数|块数)?|PHYSICAL\\s+READS?)"
+                    + "\\s*(?:[:：=]\\s*)?(?:约|为)?\\s*([0-9][0-9,]*(?:\\.[0-9]+)?)\\s*(次|页|块|KB|MB|GB)?");
     private static final Pattern ROOT_CAUSE_LABEL = Pattern.compile("(?<!\\S)根因\\s*[:：]\\s*");
     private static final Pattern THROTTLE_LABEL = Pattern.compile("(?<!\\S)限流值\\s*[:：]\\s*");
     private static final Pattern ADVICE_LABEL = Pattern.compile("(?<!\\S)优化建议\\s*[:：]\\s*");
@@ -55,7 +74,8 @@ public class ReportTextParser {
                     + "\\bSUBPLAN\\b|\\bEST\\.?\\s*ROWS\\b|\\bSORT\\b|\\bGROUP\\s+BY\\b)");
 
     private static final List<Pattern> SQL_END_LABELS = Arrays.asList(
-            EXECUTIONS_LABEL, CPU_LABEL, DURATION_LABEL, ROOT_CAUSE_LABEL,
+            EXECUTIONS_LABEL, CPU_LABEL, DURATION_LABEL, AVERAGE_ROWS_FIELD, LOGICAL_READS_FIELD,
+            PHYSICAL_READS_FIELD, ROOT_CAUSE_LABEL,
             THROTTLE_LABEL, ADVICE_LABEL, PLAN_LABEL, SCHEMA_LABEL, INDEX_LABEL,
             TABLE_STATS_LABEL, OB_VERSION_LABEL);
     private static final List<Pattern> SECTION_END_LABELS = Arrays.asList(
@@ -88,20 +108,28 @@ public class ReportTextParser {
             throw new IllegalArgumentException("报告中的 SQL 字段为空或不是可识别的 SQL");
         }
 
-        String sqlId = extractSqlId(text);
-        String executions = extractValue(text, EXECUTIONS_LABEL, Arrays.asList(
-                CPU_LABEL, DURATION_LABEL, ROOT_CAUSE_LABEL, THROTTLE_LABEL, ADVICE_LABEL, PLAN_LABEL,
-                SCHEMA_LABEL, INDEX_LABEL, TABLE_STATS_LABEL, OB_VERSION_LABEL));
-        String cpu = extractValue(text, CPU_LABEL, Arrays.asList(
-                DURATION_LABEL, ROOT_CAUSE_LABEL, THROTTLE_LABEL, ADVICE_LABEL, PLAN_LABEL,
-                SCHEMA_LABEL, INDEX_LABEL, TABLE_STATS_LABEL, OB_VERSION_LABEL));
-        String duration = extractValue(text, DURATION_LABEL, Arrays.asList(
+        String reportMetricText = reportMetricText(text, sqlLabel.start(), sqlEnd);
+        String trustedMetricText = directEvidencePrefix(reportMetricText);
+        MetricValue sqlId = extractSqlIdMetric(reportMetricText, trustedMetricText);
+        MetricValue executions = extractLabeledMetric(reportMetricText, trustedMetricText, EXECUTIONS_LABEL, Arrays.asList(
+                CPU_LABEL, DURATION_LABEL, AVERAGE_ROWS_FIELD, LOGICAL_READS_FIELD, PHYSICAL_READS_FIELD,
                 ROOT_CAUSE_LABEL, THROTTLE_LABEL, ADVICE_LABEL, PLAN_LABEL,
                 SCHEMA_LABEL, INDEX_LABEL, TABLE_STATS_LABEL, OB_VERSION_LABEL));
+        MetricValue cpu = extractLabeledMetric(reportMetricText, trustedMetricText, CPU_LABEL, Arrays.asList(
+                DURATION_LABEL, AVERAGE_ROWS_FIELD, LOGICAL_READS_FIELD, PHYSICAL_READS_FIELD,
+                ROOT_CAUSE_LABEL, THROTTLE_LABEL, ADVICE_LABEL, PLAN_LABEL,
+                SCHEMA_LABEL, INDEX_LABEL, TABLE_STATS_LABEL, OB_VERSION_LABEL));
+        MetricValue duration = extractLabeledMetric(reportMetricText, trustedMetricText, DURATION_LABEL, Arrays.asList(
+                AVERAGE_ROWS_FIELD, LOGICAL_READS_FIELD, PHYSICAL_READS_FIELD, ROOT_CAUSE_LABEL,
+                THROTTLE_LABEL, ADVICE_LABEL, PLAN_LABEL,
+                SCHEMA_LABEL, INDEX_LABEL, TABLE_STATS_LABEL, OB_VERSION_LABEL));
+        MetricValue averageRows = extractMetricValue(reportMetricText, trustedMetricText, AVERAGE_ROWS_VALUE, "行");
+        MetricValue logicalReads = extractMetricValue(reportMetricText, trustedMetricText, LOGICAL_READS_VALUE, "");
+        MetricValue physicalReads = extractMetricValue(reportMetricText, trustedMetricText, PHYSICAL_READS_VALUE, "");
         String rootCause = extractValue(text, ROOT_CAUSE_LABEL, Arrays.asList(
                 THROTTLE_LABEL, ADVICE_LABEL, PLAN_LABEL, SCHEMA_LABEL, INDEX_LABEL,
                 TABLE_STATS_LABEL, OB_VERSION_LABEL));
-        String throttle = extractValue(text, THROTTLE_LABEL, Arrays.asList(
+        MetricValue throttle = extractLabeledMetric(reportMetricText, trustedMetricText, THROTTLE_LABEL, Arrays.asList(
                 ADVICE_LABEL, PLAN_LABEL, SCHEMA_LABEL, INDEX_LABEL, TABLE_STATS_LABEL, OB_VERSION_LABEL));
         String advice = extractValue(text, ADVICE_LABEL, Arrays.asList(
                 PLAN_LABEL, SCHEMA_LABEL, INDEX_LABEL, TABLE_STATS_LABEL, OB_VERSION_LABEL));
@@ -118,7 +146,7 @@ public class ReportTextParser {
         return new ParsedReport(
                 sql,
                 inferDialect(sql),
-                buildRuntimeMetrics(sqlId, executions, cpu, duration, throttle),
+                buildRuntimeMetrics(sqlId, executions, cpu, duration, averageRows, logicalReads, physicalReads, throttle),
                 tableStats,
                 priorAnalysis,
                 plan.explainText,
@@ -154,6 +182,23 @@ public class ReportTextParser {
         return cleanValue(text.substring(matcher.end(), end));
     }
 
+    private static MetricValue extractSqlIdMetric(String text, String trustedText) {
+        String trusted = extractSqlId(trustedText);
+        return hasText(trusted)
+                ? new MetricValue(trusted, false)
+                : new MetricValue(extractSqlId(text), true);
+    }
+
+    private static MetricValue extractLabeledMetric(String text,
+                                                    String trustedText,
+                                                    Pattern label,
+                                                    List<Pattern> endLabels) {
+        String trusted = extractValue(trustedText, label, endLabels);
+        return hasText(trusted)
+                ? new MetricValue(trusted, false)
+                : new MetricValue(extractValue(text, label, endLabels), true);
+    }
+
     private static String extractValue(String text, Pattern label, List<Pattern> endLabels) {
         Matcher matcher = label.matcher(text);
         if (!matcher.find()) {
@@ -178,23 +223,63 @@ public class ReportTextParser {
         return value.trim().replaceAll("[\\t ]+", " ");
     }
 
-    private static String buildRuntimeMetrics(String sqlId,
-                                              String executions,
-                                              String cpu,
-                                              String duration,
-                                              String throttle) {
+    private static String reportMetricText(String text, int sqlLabelStart, int sqlEnd) {
+        String beforeSql = text.substring(0, sqlLabelStart);
+        String afterSql = text.substring(sqlEnd);
+        return beforeSql + "\n" + afterSql;
+    }
+
+    private static MetricValue extractMetricValue(String text,
+                                                  String trustedText,
+                                                  Pattern pattern,
+                                                  String defaultUnit) {
+        String trusted = extractNumericMetricValue(trustedText, pattern, defaultUnit);
+        return hasText(trusted)
+                ? new MetricValue(trusted, false)
+                : new MetricValue(extractNumericMetricValue(text, pattern, defaultUnit), true);
+    }
+
+    private static String extractNumericMetricValue(String text, Pattern pattern, String defaultUnit) {
+        Matcher matcher = pattern.matcher(text);
+        if (!matcher.find()) {
+            return "";
+        }
+        String number = matcher.group(1).replace(",", "");
+        String unit = matcher.groupCount() > 1 ? matcher.group(2) : "";
+        if (!hasText(unit)) {
+            unit = defaultUnit;
+        } else if ("row".equalsIgnoreCase(unit) || "rows".equalsIgnoreCase(unit)) {
+            unit = "行";
+        }
+        return hasText(unit) ? number + " " + unit : number;
+    }
+
+    private static String buildRuntimeMetrics(MetricValue sqlId,
+                                              MetricValue executions,
+                                              MetricValue cpu,
+                                              MetricValue duration,
+                                              MetricValue averageRows,
+                                              MetricValue logicalReads,
+                                              MetricValue physicalReads,
+                                              MetricValue throttle) {
         List<String> lines = new ArrayList<String>();
         addMetric(lines, "SQL ID", sqlId);
         addMetric(lines, "执行次数", executions);
         addMetric(lines, "CPU 占比", cpu);
         addMetric(lines, "平均耗时", duration);
+        addMetric(lines, "平均返回行数", averageRows);
+        addMetric(lines, "逻辑读", logicalReads);
+        addMetric(lines, "物理读", physicalReads);
         addMetric(lines, "限流值", throttle);
         return join(lines);
     }
 
-    private static void addMetric(List<String> lines, String label, String value) {
-        if (!value.isEmpty()) {
-            lines.add(label + ": " + value);
+    private static void addMetric(List<String> lines, String label, MetricValue metric) {
+        if (hasText(metric.value)) {
+            String visibleLabel = metric.unverifiedReportClaim
+                    ? label + UNVERIFIED_REPORT_METRIC_MARKER
+                    : label;
+            lines.add(visibleLabel + ": " + metric.value);
         }
     }
 
@@ -340,6 +425,16 @@ public class ReportTextParser {
             builder.append(section);
         }
         return builder.toString();
+    }
+
+    private static final class MetricValue {
+        private final String value;
+        private final boolean unverifiedReportClaim;
+
+        private MetricValue(String value, boolean unverifiedReportClaim) {
+            this.value = value == null ? "" : value;
+            this.unverifiedReportClaim = unverifiedReportClaim;
+        }
     }
 
     private static final class PlanExtraction {

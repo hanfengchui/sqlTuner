@@ -48,7 +48,8 @@ class ReportTextParserTest {
                         + "执行次数: 21.88\n"
                         + "CPU 占比: 41.7%\n"
                         + "平均耗时: 2008ms\n"
-                        + "限流值: 0");
+                        + "平均返回行数（报告结论内识别，待核验）: 1 行\n"
+                        + "限流值（报告结论内识别，待核验）: 0");
         assertThat(result.getTableStatsText()).isEqualTo(
                 "GRP_CUSTOMER: 2294867 行\nGRP_CUSTOMER_EX: 2294758 行");
         assertThat(result.getPriorAnalysisText())
@@ -61,6 +62,17 @@ class ReportTextParserTest {
         assertThat(result.getIndexText()).isEmpty();
         assertThat(result.getObVersion()).isEmpty();
         assertThat(result.getWarnings()).anyMatch(warning -> warning.contains("仅包含表行数查询"));
+
+        SqlTuningTask task = new SqlTuningTask();
+        task.setRuntimeMetricsText(result.getRuntimeMetricsText());
+        SqlStatementProfile profile = new SqlStatementParser().parse(result.getExtractedSql(), SqlDialect.OB_ORACLE);
+        ContextPackage context = new ContextAssessor().assess(task, profile, Collections.emptyList());
+        assertThat(context.getRuntimeMetricsText())
+                .contains("执行次数: 21.88", "平均耗时: 2008ms")
+                .doesNotContain("平均返回行数", "限流值", ReportTextParser.UNVERIFIED_REPORT_METRIC_MARKER);
+        assertThat(context.getAssessment().getAvailableEvidence()).contains("E_RUNTIME");
+        assertThat(context.getAssessment().getPolicyNotes())
+                .anyMatch(note -> note.contains("未计入 E_RUNTIME"));
     }
 
     @Test
@@ -120,6 +132,63 @@ class ReportTextParserTest {
         assertThat(result.getExplainText()).contains("OPERATOR", "TABLE SCAN", "idx_customer_id");
         assertThat(result.getTableStatsText()).isEmpty();
         assertThat(result.getWarnings()).noneMatch(warning -> warning.contains("补充文本 EXPLAIN"));
+    }
+
+    @Test
+    void recognizesReturnedRowsAndIoMetricsWithoutPromotingHistoricalClaimsToEvidence() {
+        String report = "SQL: SELECT id FROM orders WHERE tenant_id = ?\n"
+                + "平均耗时: 2008ms\n"
+                + "根因: 平均返回行数：仅1行，但扫描放大。逻辑读: 约123,456 次，physical reads = 789。\n"
+                + "限流值: 0";
+
+        ParsedReport result = parser.parse(report);
+
+        assertThat(result.getRuntimeMetricsText())
+                .contains("平均耗时: 2008ms")
+                .contains("平均返回行数（报告结论内识别，待核验）: 1 行")
+                .contains("逻辑读（报告结论内识别，待核验）: 123456 次")
+                .contains("物理读（报告结论内识别，待核验）: 789");
+        assertThat(result.getPriorAnalysisText())
+                .contains("平均返回行数：仅1行")
+                .contains("逻辑读: 约123,456 次")
+                .contains("physical reads = 789");
+
+        SqlTuningTask task = new SqlTuningTask();
+        task.setRuntimeMetricsText(result.getRuntimeMetricsText());
+        SqlStatementProfile profile = new SqlStatementParser().parse(result.getExtractedSql(), SqlDialect.OB_MYSQL);
+        ContextPackage context = new ContextAssessor().assess(task, profile, Collections.emptyList());
+        assertThat(context.getRuntimeMetricsText()).isEqualTo("平均耗时: 2008ms");
+        assertThat(context.getAssessment().getAvailableEvidence()).contains("E_RUNTIME");
+        assertThat(context.getAssessment().getPolicyNotes())
+                .anyMatch(note -> note.contains("界面回执和待核验背景"));
+    }
+
+    @Test
+    void doesNotCutSqlAtMetricWordsInsideAStringLiteral() {
+        String report = "SQL: SELECT 'logical reads: 123' AS metric FROM orders WHERE id = ?\n"
+                + "平均耗时: 1ms";
+
+        ParsedReport result = parser.parse(report);
+
+        assertThat(result.getExtractedSql())
+                .isEqualTo("SELECT 'logical reads: 123' AS metric FROM orders WHERE id = ?");
+        assertThat(result.getRuntimeMetricsText()).isEqualTo("平均耗时: 1ms");
+    }
+
+    @Test
+    void keepsLogicalAndPhysicalReadRowsInsideATextExecutionPlan() {
+        String report = "SQL: SELECT id FROM orders WHERE tenant_id = ?\n"
+                + "执行计划:\n"
+                + "Logical Reads: 123\n"
+                + "Physical Reads: 4\n"
+                + "| ID | OPERATOR | NAME |\n"
+                + "| 0 | TABLE FULL SCAN | orders |";
+
+        ParsedReport result = parser.parse(report);
+
+        assertThat(result.getExplainText())
+                .contains("Logical Reads: 123", "Physical Reads: 4", "TABLE FULL SCAN");
+        assertThat(result.getRuntimeMetricsText()).contains("逻辑读: 123", "物理读: 4");
     }
 
     @Test

@@ -156,6 +156,7 @@ public class TuningHarnessService {
 
     @Transactional
     public SqlTuningTask createTask(Long userId, CreateTuningTaskRequest request, String idempotencyKey) {
+        String submittedText = request.getSqlText();
         normalizePastedReport(request);
         SqlDialect dialect = SqlDialect.from(request.getDbDialect());
         validateRequest(request, dialect);
@@ -197,12 +198,13 @@ public class TuningHarnessService {
             inputImageRepository.saveAll(task.getId(), inputImages);
         }
 
-        conversationRepository.addMessage(conversationId, MessageRole.USER, request.getSqlText(), task.getId());
+        // 分析任务使用报告中提取出的单条 SQL，会话消息保留用户实际提交的完整原文。
+        conversationRepository.addMessage(conversationId, MessageRole.USER, submittedText, task.getId());
         addArtifact(task, "received", "接收用户输入和上下文", safeContextSummary(task));
         taskRepository.update(task);
         eventBroker.publish(task);
         log.info("createTask result 结果: taskId: {}, userId: {}, conversationId: {}, dbDialect: {}, inputType: {}, inputLength: {}",
-                task.getId(), userId, conversationId, task.getDbDialect(), task.getInputType(), request.getSqlText().length());
+                task.getId(), userId, conversationId, task.getDbDialect(), task.getInputType(), submittedText.length());
         return task;
     }
 

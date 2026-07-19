@@ -2,6 +2,7 @@ package com.codex.sqltuner.tuning.accuracy;
 
 import com.codex.sqltuner.rule.RuleFinding;
 import com.codex.sqltuner.tuning.SqlTuningTask;
+import com.codex.sqltuner.tuning.input.ReportTextParser;
 import com.codex.sqltuner.tuning.result.ContextAssessment;
 import com.codex.sqltuner.tuning.result.EvidenceItem;
 import org.springframework.stereotype.Component;
@@ -16,7 +17,8 @@ public class ContextAssessor {
         context.setAssessment(assessment);
         context.setIndexText(task.getIndexText());
         context.setExplainText(task.getExplainText());
-        context.setRuntimeMetricsText(task.getRuntimeMetricsText());
+        String trustedRuntimeMetrics = trustedRuntimeMetrics(task.getRuntimeMetricsText());
+        context.setRuntimeMetricsText(trustedRuntimeMetrics);
 
         addEvidence(context, "E_SQL", "USER_SQL", "已提供脱敏后的单条 " + profile.getStatementType() + " SQL", "HIGH");
         assessment.getAvailableEvidence().add("E_SQL");
@@ -51,9 +53,12 @@ public class ContextAssessor {
         } else {
             assessment.getMissingInformation().add("表行数、列基数、数据分布");
         }
-        if (hasText(task.getRuntimeMetricsText())) {
-            addEvidence(context, "E_RUNTIME", "USER_RUNTIME", "用户提供运行指标，长度 " + task.getRuntimeMetricsText().length(), "MEDIUM");
+        if (hasText(trustedRuntimeMetrics)) {
+            addEvidence(context, "E_RUNTIME", "USER_RUNTIME", "用户提供运行指标，长度 " + trustedRuntimeMetrics.length(), "MEDIUM");
             assessment.getAvailableEvidence().add("E_RUNTIME");
+        }
+        if (containsUnverifiedReportMetric(task.getRuntimeMetricsText())) {
+            assessment.getPolicyNotes().add("报告根因或既有建议中识别出的指标仅用于界面回执和待核验背景，未计入 E_RUNTIME");
         }
         if (hasText(task.getObVersion())) {
             addEvidence(context, "E_OB_VERSION", "USER_VERSION", "OceanBase 版本: " + task.getObVersion(), "MEDIUM");
@@ -113,5 +118,25 @@ public class ContextAssessor {
 
     private boolean hasReadablePlanImageFacts(String value) {
         return hasText(value) && value.trim().startsWith("readable=true");
+    }
+
+    private String trustedRuntimeMetrics(String value) {
+        if (!hasText(value)) {
+            return "";
+        }
+        StringBuilder trusted = new StringBuilder();
+        for (String line : value.split("\\r?\\n")) {
+            if (!line.contains(ReportTextParser.UNVERIFIED_REPORT_METRIC_MARKER) && hasText(line)) {
+                if (trusted.length() > 0) {
+                    trusted.append('\n');
+                }
+                trusted.append(line.trim());
+            }
+        }
+        return trusted.toString();
+    }
+
+    private boolean containsUnverifiedReportMetric(String value) {
+        return hasText(value) && value.contains(ReportTextParser.UNVERIFIED_REPORT_METRIC_MARKER);
     }
 }

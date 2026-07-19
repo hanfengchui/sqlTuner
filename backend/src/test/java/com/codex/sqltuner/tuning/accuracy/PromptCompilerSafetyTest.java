@@ -3,7 +3,11 @@ package com.codex.sqltuner.tuning.accuracy;
 import com.codex.sqltuner.rule.SqlDialect;
 import com.codex.sqltuner.skill.SkillVersion;
 import com.codex.sqltuner.skill.SkillPromptPolicy;
+import com.codex.sqltuner.tuning.SqlTuningTask;
+import com.codex.sqltuner.tuning.input.ReportTextParser;
 import org.junit.jupiter.api.Test;
+
+import java.util.Collections;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -45,6 +49,25 @@ class PromptCompilerSafetyTest {
         assertThatThrownBy(() -> new PromptCompiler().systemPrompt(skill, SqlDialect.OB_MYSQL))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("技能内容超过");
+    }
+
+    @Test
+    void analysisPromptExcludesMetricsFoundOnlyInsideHistoricalClaims() {
+        String sql = "SELECT id FROM orders WHERE tenant_id = ?";
+        SqlTuningTask task = new SqlTuningTask();
+        task.setSanitizedSql(sql);
+        task.setRuntimeMetricsText("平均耗时: 2008ms\n平均返回行数"
+                + ReportTextParser.UNVERIFIED_REPORT_METRIC_MARKER + ": 1 行");
+        SqlStatementProfile profile = new SqlStatementParser().parse(sql, SqlDialect.OB_MYSQL);
+        ContextPackage context = new ContextAssessor().assess(task, profile, Collections.emptyList());
+
+        String prompt = new PromptCompiler().analysisPrompt(
+                task, SqlDialect.OB_MYSQL, profile, context, Collections.emptyList(), "无");
+
+        assertThat(prompt)
+                .contains("运行指标（仅可引用已计入 E_RUNTIME 的直接指标）:\n平均耗时: 2008ms")
+                .doesNotContain(ReportTextParser.UNVERIFIED_REPORT_METRIC_MARKER)
+                .doesNotContain("平均返回行数: 1 行");
     }
 
     private String repeat(char value, int count) {
