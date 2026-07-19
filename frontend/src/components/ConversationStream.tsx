@@ -2,6 +2,7 @@ import { Bot } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
 import { TaskProgressMessage, TuningAdviceMessage } from "./TuningAdviceMessage";
 import type { Message, ModelStreamUpdate, SqlTuningTask } from "../types/api";
+import { formatRecognizedEvidence } from "../lib/recognizedEvidence";
 
 interface ConversationStreamProps {
   messages: Message[];
@@ -91,6 +92,7 @@ function ConversationBubble({
   onContentChange: () => void;
 }) {
   const isUser = message.role === "USER";
+  const recognizedEvidence = isUser ? formatRecognizedEvidence(task) : "";
 
   if (!isUser) {
     return (
@@ -106,6 +108,12 @@ function ConversationBubble({
     <article className="message-row user" aria-label={`你的消息，${formatTime(message.createdAt)}`}>
       <div className="message-card user-message-card">
         {looksLikeSqlOrReport(message.content) ? <pre className="user-sql-message">{message.content}</pre> : <p>{message.content}</p>}
+        {recognizedEvidence && (
+          <p className="recognized-evidence">
+            <strong>已识别证据：</strong>
+            <span>{recognizedEvidence}</span>
+          </p>
+        )}
       </div>
     </article>
   );

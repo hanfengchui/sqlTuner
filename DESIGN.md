@@ -2,7 +2,7 @@
 
 ## Source of truth
 - Status: Active
-- Last refreshed: 2026-07-18
+- Last refreshed: 2026-07-19
 - Primary product surfaces: Login, desktop SQL tuning conversation, model operations console, skill prompt console, deterministic rule catalog.
 - Evidence reviewed: `frontend/src/pages/App.tsx`, `frontend/src/components/AppShell.tsx`, `frontend/src/components/SqlInputPanel.tsx`, `frontend/src/components/ConversationStream.tsx`, `frontend/src/components/TuningAdviceMessage.tsx`, `frontend/src/pages/*AdminPage.tsx`, `frontend/src/styles/global.css`, `README.md`, user-approved sqlTuner overhaul plan, current production workspace screenshot and the supplied 2940x1846 Codex desktop conversation reference on 2026-07-18.
 
@@ -12,9 +12,9 @@
 - Avoid: marketing homepages, decorative gradients, oversized hero typography, fake controls, dashboard-card clutter, evidence IDs in routine reading, unverified certainty, and redundant report panels.
 
 ## Product goals
-- Goals: let engineers paste an OceanBase SQL or a full diagnostic-report text block, attach plan screenshots when useful, and receive a compact, actionable tuning answer in the same conversation.
+- Goals: let engineers paste an OceanBase SQL or a full diagnostic-report text block, keep the submitted source visible, attach plan screenshots when useful, see which high-value facts were recognized, and receive a compact, actionable tuning answer in the same conversation.
 - Non-goals: connect to business databases, auto-apply DDL, support generic database engines, import DOC/DOCX/PDF report files, expose raw model tokens before validation, support tablet/mobile layouts, or hide uncertainty behind confident prose.
-- Success signals: the primary screen has one readable conversation column, no hidden operational report workflow is required, users can see a task progressing, and the final answer surfaces only the strongest actionable diagnoses, one rewrite/index direction when allowed, and the next required input when not.
+- Success signals: the primary screen has one readable conversation column, the user can verify that the original report and its core runtime facts were retained, no hidden operational report workflow is required, users can see a task progressing, and the final answer surfaces only the strongest decision basis, one rewrite/index direction when allowed, and the next required input when not.
 
 ## Personas and jobs
 - Primary personas: database engineer, backend engineer, operations owner, admin maintaining model/skill configuration.
@@ -31,6 +31,7 @@
 - Principle 2: Validation before reveal. The upstream model is genuinely streamed, but the live draft is a server-side projection limited to `analysisNarrative` prose. Reasoning traces, raw JSON, rewrite SQL and index DDL are never streamed; the final answer replaces the draft only after strict validation succeeds.
 - Principle 3: Input should accept the form people already have. Full patrol-report text is parsed server-side; an attachment is a compact screenshot chip, not a large evidence form.
 - Principle 4: Disclosure earns its place. Evidence IDs, raw artifacts, exhaustive preconditions and duplicate risk text are hidden from the routine chat response.
+- Principle 5: Parsing must be visible without becoming a dossier. Preserve the exact pasted source in the user bubble, then show one compact evidence receipt derived from parsed runtime metrics and table statistics. The assistant answer uses at most three plain-language decision facts and never exposes internal evidence IDs.
 - Tradeoffs: structured detail remains stored in task APIs for auditability, but no separate audit screen competes with the conversational reading path.
 
 ## Visual language
@@ -43,7 +44,7 @@
 
 ## Components
 - Existing components to reuse: authentication API shape, conversation/task APIs, theme hook, admin pages, task SSE/polling behavior, server-side pasted-report extraction and image validation.
-- New/changed components: Codex-proportioned desktop conversation rail, compact auto-growing SQL/report message composer, screenshot attachment tray, unframed chat task-progress message, validated tuning-advice message, searchable session list and compact admin consoles.
+- New/changed components: Codex-proportioned desktop conversation rail, compact auto-growing SQL/report message composer, screenshot attachment tray, original-source user message with a one-line recognized-evidence receipt, unframed chat task-progress message, validated tuning-advice message with a concise decision-basis section, searchable session list and compact admin consoles.
 - Removed from the workspace: context-completeness meter, schema/index/EXPLAIN/runtime/semantic text fields, allowed-action checkboxes, the "补充证据" disclosure, right report inspector, result tabs and routine artifact/evidence cards.
 - Variants and states: queued/running/terminal task states, standard/deep analysis, `ADVICE`/`NEEDS_INPUT`, empty/error/loading/disabled/offline-ish retry states.
 - Token/component ownership: global CSS owns tokens and shared layout primitives; React components own state and semantics.
@@ -64,15 +65,15 @@
 - Loading: status is an assistant message with the current task stage. When available it shows a clearly marked “待校验” narrative draft projected by the server; it never exposes reasoning traces, raw JSON, rewrite SQL or index DDL.
 - Empty: the workspace centers the compact composer and asks for a SQL or full diagnostic-report text block, without marketing copy.
 - Error: inline assistant message states that the task failed and keeps the submitted text available in the conversation.
-- Success: once strict validation is complete, the assistant answer reveals a direct conclusion followed by a short evidence-led narrative. It may then show one validated rewrite or index direction, with a validation step only when that changes the engineer's next action. Legacy diagnosis lists remain a fallback for historical tasks only.
+- Success: the user message keeps the exact pasted text and, when report facts were parsed, appends one quiet `已识别证据` line. Once strict validation is complete, the assistant answer reveals a direct conclusion followed by at most three concise `判断依据` items. It may then show one validated rewrite or index direction, with a validation step only when that changes the engineer's next action. Legacy diagnosis lists remain a fallback for historical tasks only.
 - Disabled: disabled controls retain accessible labels and the send action is disabled only while the composer is empty or submission is in progress.
 - Offline/slow network, if applicable: the in-progress message remains truthful; SSE reconnects and task GET remains the recovery source.
 
 ## Content voice
 - Tone: direct, technical Chinese. The assistant leads with the recommendation rather than process terminology.
 - Terminology: OceanBase MySQL, OceanBase Oracle, SQL, report, diagnosis, rewrite, index direction, next step, queue.
-- Microcopy rules: use plain imperative suggestions; no evidence-ID prose, no repeated confidence labels, no promise of automatic speedups. State a missing input only when it changes the next action.
-- Input evidence rules: the report sample document is only a transport example; product input is pasted SQL/report text plus pasted, dropped or selected PNG/JPEG/WebP images. Historical root-cause/advice text is an untrusted claim; screenshot facts come from the dedicated vision pass at LOW trust; an image never counts as a complete text EXPLAIN and never unlocks deterministic index DDL by itself.
+- Microcopy rules: use plain imperative suggestions; no evidence-ID prose, no repeated confidence labels, no promise of automatic speedups. `已识别证据` is a compact receipt such as `执行 21.88 · CPU 41.7% · 平均 2008ms · 返回 1 行 · 表规模约 229 万`; `判断依据` contains at most three validated facts. State a missing input only when it changes the next action.
+- Input evidence rules: the report sample document is only a transport example; product input is pasted SQL/report text plus pasted, dropped or selected PNG/JPEG/WebP images. Historical root-cause/advice text is an untrusted claim; metrics found only inside those historical claims may appear in the `已识别证据` receipt but stay explicitly marked as unverified and never enter `E_RUNTIME`. Screenshot facts come from the dedicated vision pass at LOW trust; an image never counts as a complete text EXPLAIN and never unlocks deterministic index DDL by itself.
 
 ## Implementation constraints
 - Framework/styling system: React + Vite, `react-router-dom`, selected Radix Tooltip primitive and lucide icons. The chat composer is a native, accessible textarea rather than a code-editor workbench.

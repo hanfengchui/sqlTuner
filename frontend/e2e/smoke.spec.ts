@@ -100,6 +100,14 @@ test("workspace shell renders session search and composer", async ({ page }) => 
 });
 
 test("workspace renders concise validated advice inline in the conversation", async ({ page }, testInfo) => {
+  const pastedReport = [
+    "SQL ID: B05FC9141039983E7E33ECD3A563E37D",
+    "SQL: select * from orders where status = 'PAID' order by created_at desc",
+    "执行次数: 21.88",
+    "CPU占比: 41.7%",
+    "平均耗时: 2008ms",
+    "根因: 平均返回行数仅1行。"
+  ].join("\n");
   const conversationTitles = [
     "订单慢 SQL",
     "优化 SQL 全表扫描与嵌套循环",
@@ -140,7 +148,7 @@ test("workspace renders concise validated advice inline in the conversation", as
         data: [
           { id: -1, conversationId: 1, role: "USER", content: "先按现有信息判断这条查询最可能的瓶颈。", createdAt: "2026-07-17T23:58:00Z" },
           { id: 0, conversationId: 1, role: "ASSISTANT", content: "上一轮已确认当前 SQL 的筛选和排序结构，但在没有执行计划与现有索引定义前，不能把耗时直接归因于索引缺失。", createdAt: "2026-07-17T23:59:00Z" },
-          { id: 1, conversationId: 1, role: "USER", content: "select * from orders where status = 'PAID' order by created_at desc", taskId: 7, createdAt: "2026-07-18T00:00:00Z" },
+          { id: 1, conversationId: 1, role: "USER", content: pastedReport, taskId: 7, createdAt: "2026-07-18T00:00:00Z" },
           { id: 2, conversationId: 1, role: "ASSISTANT", content: "当前查询可通过缩小投影列并验证排序访问路径来降低扫描成本。", taskId: 7, createdAt: "2026-07-18T00:00:05Z" }
         ]
       }
@@ -156,6 +164,8 @@ test("workspace renders concise validated advice inline in the conversation", as
           conversationId: 1,
           dbDialect: "OceanBase MySQL",
           originalSql: "select * from orders where status = 'PAID' order by created_at desc",
+          runtimeMetricsText: "执行次数: 21.88\nCPU 占比: 41.7%\n平均耗时: 2008ms\n平均返回行数（报告结论内识别，待核验）: 1 行",
+          tableStatsText: "orders: 2294867 行",
           deepAnalysis: false,
           status: "DONE",
           statusMessage: "调优建议已生成",
@@ -223,12 +233,18 @@ test("workspace renders concise validated advice inline in the conversation", as
 
   await page.goto("/chat");
 
+  await expect(page.locator(".user-sql-message")).toHaveText(pastedReport);
+  await expect(page.getByText("已识别证据：")).toBeVisible();
+  await expect(page.getByText("执行 21.88 · CPU 41.7% · 平均 2008ms · 返回 1 行 · 表规模约 229 万")).toBeVisible();
   await expect(page.getByText("先确认当前访问路径和索引覆盖情况；在没有计划证据前，不应直接把排序问题归因于索引缺失。")).toBeVisible();
-  await expect(page.getByText("为什么先验证计划")).toBeVisible();
-  await expect(page.getByText("验证标准")).toBeVisible();
-  await expect(page.getByText("上线前注意")).toBeVisible();
+  await expect(page.getByText("判断依据")).toBeVisible();
+  await expect(page.getByText("现有输入可以确认筛选和排序结构。")).toBeVisible();
+  await expect(page.getByText("还不能确认实际扫描行数、排序算子或索引命中情况。")).toBeVisible();
+  await expect(page.getByText("为什么先验证计划")).toHaveCount(0);
+  await expect(page.getByText("验证标准")).toHaveCount(0);
+  await expect(page.getByText("上线前注意")).toHaveCount(0);
   await expect(page.getByText("建议改写")).toHaveCount(0);
-  await expect(page.getByText("索引候选")).toHaveCount(0);
+  await expect(page.getByText("索引候选")).toBeVisible();
   await expect(page.getByText(/create index idx_orders_status_created/)).toBeVisible();
   await expect(page.getByText("重点问题")).toHaveCount(0);
   await expect(page.getByText("SELECT * 扩大回表成本")).toHaveCount(0);

@@ -51,11 +51,11 @@ describe("TuningAdviceMessage", () => {
     );
 
     expect(screen.getByText("先确认扫描路径。")).toBeInTheDocument();
-    expect(screen.getByText("关键问题")).toBeInTheDocument();
+    expect(screen.getByText("判断依据")).toBeInTheDocument();
   });
 
   it("prefers one evidence-gated index DDL over a secondary rewrite", () => {
-    render(
+    const { container } = render(
       <TuningAdviceMessage
         task={{
           ...baseTask,
@@ -78,8 +78,9 @@ describe("TuningAdviceMessage", () => {
               tableName: "orders",
               columnOrder: ["status", "created_at"],
               ddl: "create index idx_orders_status_created on orders(status, created_at)",
-              benefit: "减少排序和扫描",
-              writeCost: "增加写维护"
+              benefit: "减少排序和扫描 [E_EXPLAIN]",
+              writeCost: "增加写维护【E_SCHEMA】",
+              risk: "确认不存在重复索引（E_INDEX）"
             }],
             validationPlan: [{ action: "执行 EXPLAIN", expectedSignal: "确认访问路径" }],
             missingInformation: [],
@@ -98,15 +99,19 @@ describe("TuningAdviceMessage", () => {
     );
 
     expect(screen.getByText("已校验")).toBeInTheDocument();
-    expect(screen.getByText("关键问题")).toBeInTheDocument();
+    expect(screen.getByText("判断依据")).toBeInTheDocument();
     expect(screen.getByText("SELECT * 扩大回表成本")).toBeInTheDocument();
     expect(screen.getByText("第三个问题")).toBeInTheDocument();
     expect(screen.queryByText("不应默认展示")).not.toBeInTheDocument();
     expect(screen.queryByText("建议改写")).not.toBeInTheDocument();
     expect(screen.getByText("索引候选")).toBeInTheDocument();
+    expect(screen.getByText("减少排序和扫描")).toBeInTheDocument();
+    expect(screen.getByText("写入成本：增加写维护")).toBeInTheDocument();
+    expect(screen.getByText("注意：确认不存在重复索引")).toBeInTheDocument();
     expect(screen.getByText(/create index idx_orders_status_created/)).toBeInTheDocument();
     expect(screen.queryByText("验证")).not.toBeInTheDocument();
     expect(screen.queryByText("E_EXPLAIN")).not.toBeInTheDocument();
+    expect(container).not.toHaveTextContent(/E_(?:SQL|EXPLAIN|SCHEMA|INDEX|RUNTIME)/);
     expect(screen.queryByRole("tab")).not.toBeInTheDocument();
   });
 
@@ -144,8 +149,8 @@ describe("TuningAdviceMessage", () => {
               benefit: "不应在需要补充时展示"
             }],
             validationPlan: [],
-            missingInformation: ["文本 EXPLAIN", "当前索引定义"],
-            safetyWarnings: ["不要直接上线索引 DDL"],
+            missingInformation: ["文本 EXPLAIN [E_SQL]", "当前索引定义"],
+            safetyWarnings: ["不要直接上线索引 DDL【E_SQL】"],
             findings: [],
             rewriteSql: "",
             indexSuggestions: [],
@@ -160,6 +165,8 @@ describe("TuningAdviceMessage", () => {
     );
 
     expect(screen.getByText("需要补充")).toBeInTheDocument();
+    expect(screen.getByText("判断依据")).toBeInTheDocument();
+    expect(screen.getByText("只有 SQL 文本，不能确认实际访问路径。")).toBeInTheDocument();
     expect(screen.getByText("请补充：文本 EXPLAIN")).toBeInTheDocument();
     expect(screen.queryByText("当前索引定义")).not.toBeInTheDocument();
     expect(screen.getByText("注意：不要直接上线索引 DDL")).toBeInTheDocument();
@@ -175,12 +182,12 @@ describe("TuningAdviceMessage", () => {
             outcome: "ADVICE",
             summary: "旧摘要不应成为主答案。",
             analysisNarrative: {
-              conclusion: "最终结论：先补齐执行计划，再判断扫描和排序是否真的存在。",
+              conclusion: "最终结论：先补齐执行计划，再判断扫描和排序是否真的存在。[E_SQL]",
               sections: [
                 {
                   kind: "EVIDENCE",
                   title: "依据",
-                  body: "- 已知 SQL 包含筛选和排序。\n- 没有可验证的文本执行计划或现有索引定义。",
+                  body: "- 已知 SQL 包含筛选和排序。[E_SQL]\n- 平均耗时为 2008ms。【E_RUNTIME】\n- 两张表均约 229 万行。（E_STATS）\n- 第四条不应显示。[E_SQL]",
                   evidenceRefs: ["E_SQL"]
                 },
                 {
@@ -236,11 +243,15 @@ describe("TuningAdviceMessage", () => {
     expect(screen.queryByText("不应重复的结论块")).not.toBeInTheDocument();
     expect(screen.queryByText("这段结论不应在顶部结论之后再显示。")).not.toBeInTheDocument();
     expect(screen.getByText(/create index idx_orders_tenant_created/)).toBeInTheDocument();
-    expect(screen.queryByText("已知 SQL 包含筛选和排序。")).not.toBeInTheDocument();
+    expect(screen.getByText("判断依据")).toBeInTheDocument();
+    expect(screen.getByText("已知 SQL 包含筛选和排序。")).toBeInTheDocument();
+    expect(screen.getByText("平均耗时为 2008ms。")).toBeInTheDocument();
+    expect(screen.getByText("两张表均约 229 万行。")).toBeInTheDocument();
+    expect(screen.queryByText("第四条不应显示。")).not.toBeInTheDocument();
     expect(screen.getByText("索引候选")).toBeInTheDocument();
     expect(screen.getByText("仅在已验证前提下减少排序")).toBeInTheDocument();
-    expect(screen.queryByText("关键问题")).toBeInTheDocument();
-    expect(screen.queryByText("旧诊断不应重复")).toBeInTheDocument();
+    expect(screen.queryByText("关键问题")).not.toBeInTheDocument();
+    expect(screen.queryByText("旧诊断不应重复")).not.toBeInTheDocument();
     expect(screen.queryByText("E_SQL")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "查看完整依据" })).not.toBeInTheDocument();
   });

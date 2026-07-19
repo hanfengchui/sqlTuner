@@ -586,20 +586,30 @@ class TuningHarnessServiceTest {
         TuningHarnessService service = service();
         CreateTuningTaskRequest request = new CreateTuningTaskRequest();
         request.setDbDialect("OceanBase MySQL");
-        request.setSqlText("SQL ID: SAMPLE-1 SQL: select * from orders where status = ? order by created_at desc fetch first 20 rows only\n"
+        String submittedReport = "SQL ID: SAMPLE-1 SQL: select * from orders where status = ? order by created_at desc fetch first 20 rows only\n"
                 + "执行次数: 21 CPU占比: 41.7% 平均耗时: 2008ms "
-                + "根因: 全表扫描。 限流值: 0 优化建议: 直接创建索引。\n"
-                + "执行计划\nSELECT COUNT(*) FROM orders; 2294867");
+                + "根因: 全表扫描，平均返回行数仅1行。逻辑读: 123456，物理读: 789。 "
+                + "限流值: 0 优化建议: 直接创建索引。\n"
+                + "执行计划\nSELECT COUNT(*) FROM orders; 2294867";
+        request.setSqlText(submittedReport);
         request.setDeepAnalysis(Boolean.FALSE);
 
         SqlTuningTask task = service.createTask(1L, request);
 
         assertThat(task.getDbDialect()).isEqualTo("OceanBase Oracle");
         assertThat(task.getOriginalSql()).startsWith("select * from orders").doesNotContain("执行次数");
-        assertThat(task.getRuntimeMetricsText()).contains("SQL ID: SAMPLE-1", "平均耗时: 2008ms");
+        assertThat(task.getRuntimeMetricsText()).contains(
+                "SQL ID: SAMPLE-1",
+                "平均耗时: 2008ms",
+                "平均返回行数（报告结论内识别，待核验）: 1 行",
+                "逻辑读（报告结论内识别，待核验）: 123456",
+                "物理读（报告结论内识别，待核验）: 789");
         assertThat(task.getTableStatsText()).contains("orders: 2294867 行");
         assertThat(task.getExplainText()).isEmpty();
         assertThat(task.getBusinessContext()).contains("待核验，不作为事实证据", "补充文本 EXPLAIN");
+        assertThat(conversationRepository.listMessages(task.getConversationId()))
+                .singleElement()
+                .satisfies(message -> assertThat(message.getContent()).isEqualTo(submittedReport));
     }
 
     @Test

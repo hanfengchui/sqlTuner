@@ -72,7 +72,8 @@ public class PromptCompiler {
         builder.append("图片执行计划视觉事实（LOW trust，仅作辅助，不等同 EXPLAIN 文本）:\n")
                 .append(emptyToPlaceholder(task.getPlanImageFacts())).append("\n\n");
         builder.append("表统计:\n").append(emptyToPlaceholder(task.getTableStatsText())).append("\n\n");
-        builder.append("运行指标:\n").append(emptyToPlaceholder(task.getRuntimeMetricsText())).append("\n\n");
+        builder.append("运行指标（仅可引用已计入 E_RUNTIME 的直接指标）:\n")
+                .append(emptyToPlaceholder(context.getRuntimeMetricsText())).append("\n\n");
         builder.append("业务语义约束:\n").append(emptyToPlaceholder(task.getBusinessInvariants())).append("\n\n");
         builder.append("业务说明 / 粘贴报告既有结论（仅作待核验背景，不能作为 evidenceRefs）:\n")
                 .append(emptyToPlaceholder(task.getBusinessContext())).append("\n\n");

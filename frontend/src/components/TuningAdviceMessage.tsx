@@ -1,6 +1,6 @@
-import { AlertTriangle, CheckCircle2, Copy, Loader2, Sparkles, Wrench } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Copy, ListChecks, Loader2, Sparkles, Wrench } from "lucide-react";
 import { useLayoutEffect, useMemo } from "react";
-import type { Diagnosis, IndexCandidate, ModelStreamUpdate, RewriteCandidate, SqlTuningTask } from "../types/api";
+import type { AnalysisNarrativeSection, Diagnosis, IndexCandidate, ModelStreamUpdate, RewriteCandidate, SqlTuningTask } from "../types/api";
 
 interface TuningAdviceMessageProps {
   task?: SqlTuningTask;
@@ -8,10 +8,15 @@ interface TuningAdviceMessageProps {
 }
 
 type AdviceBlock =
-  | { id: "diagnoses"; type: "diagnoses" }
+  | { id: "basis"; type: "basis" }
   | { id: "rewrite"; type: "rewrite"; candidate: RewriteCandidate; compact?: boolean }
   | { id: "index"; type: "index"; candidate: IndexCandidate; compact?: boolean }
   | { id: "next"; type: "next" };
+
+interface AdviceBasisItem {
+  title?: string;
+  detail?: string;
+}
 
 export function TuningAdviceMessage({ task, onContentChange }: TuningAdviceMessageProps) {
   const advice = useMemo(() => normalizeAdvice(task), [task]);
@@ -93,15 +98,15 @@ function safeStreamingDraft(value?: string) {
 
 function renderBlock(block: AdviceBlock, advice: ReturnType<typeof normalizeAdvice>) {
   switch (block.type) {
-    case "diagnoses":
+    case "basis":
       return (
-        <section key={block.id} className="advice-block advice-diagnoses">
-          <h3><AlertTriangle size={16} />关键问题</h3>
+        <section key={block.id} className="advice-block advice-basis">
+          <h3><ListChecks size={16} />判断依据</h3>
           <ol>
-            {advice.diagnoses.slice(0, 3).map((diagnosis, index) => (
-              <li key={`${diagnosis.title}-${index}`}>
-                <strong>{diagnosis.title || "SQL 诊断"}</strong>
-                {diagnosis.impact && <span>{diagnosis.impact}</span>}
+            {advice.basis.map((item, index) => (
+              <li key={`${item.title || item.detail}-${index}`}>
+                {item.title && <strong>{item.title}</strong>}
+                {item.detail && <span>{item.detail}</span>}
               </li>
             ))}
           </ol>
@@ -124,8 +129,8 @@ function renderBlock(block: AdviceBlock, advice: ReturnType<typeof normalizeAdvi
 
 function buildBlocks(advice: ReturnType<typeof normalizeAdvice>): AdviceBlock[] {
   const blocks: AdviceBlock[] = [];
-  if (advice.diagnoses.length > 0) {
-    blocks.push({ id: "diagnoses", type: "diagnoses" });
+  if (advice.basis.length > 0) {
+    blocks.push({ id: "basis", type: "basis" });
   }
   appendRecommendations(blocks, advice);
   if (advice.outcome === "NEEDS_INPUT" || advice.warning) {
@@ -157,8 +162,9 @@ function RecommendationBlock({ type, candidate, compact = false }: { type: "rewr
   const rewrite = candidate as RewriteCandidate;
   const sql = isIndex ? index.ddl : (rewrite.sql || rewrite.rewrittenSql);
   const title = isIndex ? "索引候选" : "建议改写";
-  const description = isIndex ? index.benefit : firstText(rewrite.change, rewrite.changes);
-  const risk = isIndex ? index.risk : firstText(rewrite.risk, rewrite.risks);
+  const description = stripEvidenceIds(isIndex ? index.benefit || "" : firstText(rewrite.change, rewrite.changes));
+  const risk = stripEvidenceIds(isIndex ? index.risk || "" : firstText(rewrite.risk, rewrite.risks));
+  const writeCost = stripEvidenceIds(index.writeCost || "");
   const className = `${isIndex ? "advice-block advice-recommendation advice-index" : "advice-block advice-recommendation advice-rewrite"}${compact ? " compact" : ""}`;
 
   return (
@@ -167,7 +173,7 @@ function RecommendationBlock({ type, candidate, compact = false }: { type: "rewr
       {isIndex && !compact && <strong className="advice-index-title">{indexTitle(index)}</strong>}
       {description && !compact && <p>{description}</p>}
       {sql && <SqlSnippet value={sql} />}
-      {isIndex && index.writeCost && <small>写入成本：{index.writeCost}</small>}
+      {isIndex && writeCost && <small>写入成本：{writeCost}</small>}
       {risk && <small>注意：{risk}</small>}
     </section>
   );
@@ -211,22 +217,62 @@ function normalizeAdvice(task?: SqlTuningTask) {
   })) || [];
   const outcome = result?.outcome || task?.outcome || "ADVICE";
   const missing = result?.missingInformation || result?.needMoreInfo || [];
+  const firstMissing = stripEvidenceIds(missing[0] || "");
+  const narrativeBasis = extractNarrativeBasis(result?.analysisNarrative?.sections || []);
   return {
     outcome,
     narrative: result?.analysisNarrative,
     summary: result?.summary || (task?.status === "FAILED" ? "任务失败，请检查输入或稍后重试。" : "本轮分析已完成。"),
     diagnoses,
+    basis: narrativeBasis.length > 0 ? narrativeBasis : diagnosisBasis(diagnoses),
     rewrite: rewrites[0],
     index: indexes[0],
     nextStep: outcome === "NEEDS_INPUT"
-      ? missing[0] ? `请补充：${missing[0]}` : "请补充可验证的执行计划或表结构信息。"
+      ? firstMissing ? `请补充：${firstMissing}` : "请补充可验证的执行计划或表结构信息。"
       : "",
-    warning: (result?.safetyWarnings || result?.riskWarnings || [])[0]
+    warning: stripEvidenceIds((result?.safetyWarnings || result?.riskWarnings || [])[0] || "")
   };
 }
 
 function stripConclusionPrefix(value: string) {
-  return value.replace(/^(?:最终结论|结论)\s*[：:]\s*/, "");
+  return stripEvidenceIds(value).replace(/^(?:最终结论|结论)\s*[：:]\s*/, "");
+}
+
+function extractNarrativeBasis(sections: AnalysisNarrativeSection[]): AdviceBasisItem[] {
+  const items: AdviceBasisItem[] = [];
+  for (const section of sections) {
+    if (section.kind?.toUpperCase() !== "EVIDENCE") {
+      continue;
+    }
+    const lines = stripEvidenceIds(section.body || "")
+      .split(/\r?\n/)
+      .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)、])\s*/, "").trim())
+      .filter(Boolean);
+    for (const line of lines) {
+      items.push({ detail: line });
+      if (items.length === 3) {
+        return items;
+      }
+    }
+  }
+  return items;
+}
+
+function diagnosisBasis(diagnoses: Diagnosis[]): AdviceBasisItem[] {
+  return diagnoses.slice(0, 3).map((diagnosis) => {
+    const title = stripEvidenceIds(diagnosis.title || "SQL 诊断");
+    const detail = stripEvidenceIds(diagnosis.impact || "");
+    return { title, detail: detail && detail !== title ? detail : undefined };
+  });
+}
+
+function stripEvidenceIds(value: string) {
+  return value
+    .replace(/[\[（(【]\s*E_[A-Z0-9_]+\s*[\]）)】]/gi, "")
+    .replace(/\bE_[A-Z0-9_]+\b/gi, "")
+    .replace(/[ \t]+([，。；：,.!?])/g, "$1")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
 }
 
 function firstText(primary?: string, legacy?: string[]) {
@@ -234,7 +280,7 @@ function firstText(primary?: string, legacy?: string[]) {
 }
 
 function indexTitle(index: IndexCandidate) {
-  const table = index.tableName || index.table || "目标表";
-  const columns = index.columnOrder || index.columns || [];
+  const table = stripEvidenceIds(index.tableName || index.table || "目标表") || "目标表";
+  const columns = (index.columnOrder || index.columns || []).map(stripEvidenceIds).filter(Boolean);
   return columns.length > 0 ? `${table} (${columns.join(", ")})` : table;
 }
