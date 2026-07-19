@@ -23,6 +23,7 @@ public class SqlStatementProfile {
     private List<String> groupByItems = new ArrayList<String>();
     private List<String> orderByItems = new ArrayList<String>();
     private List<String> paginationSignatures = new ArrayList<String>();
+    private List<String> indexRelevantColumns = new ArrayList<String>();
 
     public boolean isValid() {
         return valid;
@@ -159,4 +160,15 @@ public class SqlStatementProfile {
     public void setPaginationSignatures(List<String> paginationSignatures) {
         this.paginationSignatures = paginationSignatures;
     }
+
+    public List<String> getIndexRelevantColumns() {
+        return indexRelevantColumns;
+    }
+
+    public void setIndexRelevantColumns(List<String> indexRelevantColumns) {
+        this.indexRelevantColumns = indexRelevantColumns == null
+                ? new ArrayList<String>()
+                : indexRelevantColumns;
+    }
+
 }

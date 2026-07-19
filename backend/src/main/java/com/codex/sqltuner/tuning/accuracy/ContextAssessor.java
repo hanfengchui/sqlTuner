@@ -19,6 +19,8 @@ public class ContextAssessor {
         context.setExplainText(task.getExplainText());
         String trustedRuntimeMetrics = trustedRuntimeMetrics(task.getRuntimeMetricsText());
         context.setRuntimeMetricsText(trustedRuntimeMetrics);
+        boolean hasReadablePlanImage = hasReadablePlanImageFacts(task.getPlanImageFacts());
+        boolean hasActionablePlanImage = hasActionablePlanImageFacts(task.getPlanImageFacts());
 
         addEvidence(context, "E_SQL", "USER_SQL", "已提供脱敏后的单条 " + profile.getStatementType() + " SQL", "HIGH");
         assessment.getAvailableEvidence().add("E_SQL");
@@ -26,24 +28,26 @@ public class ContextAssessor {
             addEvidence(context, "E_SCHEMA", "USER_SCHEMA", "用户提供表结构，长度 " + task.getSchemaText().length(), "MEDIUM");
             assessment.getAvailableEvidence().add("E_SCHEMA");
         } else {
-            assessment.getMissingInformation().add("表结构 DDL");
+            assessment.getMissingInformation().add("表结构 DDL（生成最终 DDL 时需要）");
         }
         if (hasText(task.getIndexText())) {
             addEvidence(context, "E_INDEX", "USER_INDEX", "用户提供现有索引，长度 " + task.getIndexText().length(), "MEDIUM");
             assessment.getAvailableEvidence().add("E_INDEX");
         } else {
-            assessment.getMissingInformation().add("现有索引定义");
+            assessment.getMissingInformation().add("现有索引定义（排重并生成最终 DDL 时需要）");
         }
         if (hasText(task.getExplainText())) {
             addEvidence(context, "E_EXPLAIN", "USER_EXPLAIN", "用户提供执行计划，长度 " + task.getExplainText().length(), "MEDIUM");
             assessment.getAvailableEvidence().add("E_EXPLAIN");
+        } else if (hasReadablePlanImage) {
+            assessment.getMissingInformation().add("可解析文本 EXPLAIN（仅用于提高置信度，不阻塞方向性建议）");
         } else {
             assessment.getMissingInformation().add("EXPLAIN / 执行计划");
         }
-        if (hasReadablePlanImageFacts(task.getPlanImageFacts())) {
+        if (hasReadablePlanImage) {
             addEvidence(context, "E_PLAN_IMAGE", "VISION_PLAN_IMAGE", "用户上传图片的视觉抽取摘要，低可信，仅用于辅助定位，不等同文本 EXPLAIN", "LOW");
             assessment.getAvailableEvidence().add("E_PLAN_IMAGE");
-            assessment.getPolicyNotes().add("E_PLAN_IMAGE 来自图片视觉抽取，不能替代可解析 EXPLAIN，也不能提升 DDL/HIGH 置信度门禁");
+            assessment.getPolicyNotes().add("E_PLAN_IMAGE 可支持带前提的中等置信度方向，但不能替代可解析 EXPLAIN，也不能解锁最终 DDL/HIGH 置信度");
         } else if (hasText(task.getPlanImageFacts())) {
             assessment.getPolicyNotes().add("上传图片无法可靠识别，未计入证据目录；请补充清晰截图或文本 EXPLAIN");
         }
@@ -77,13 +81,24 @@ public class ContextAssessor {
         boolean hasIndex = hasText(task.getIndexText());
         boolean hasExplain = hasText(task.getExplainText());
         boolean hasStats = hasText(task.getTableStatsText());
+        boolean hasRuntime = hasText(trustedRuntimeMetrics);
         boolean hasVersion = hasText(task.getObVersion());
+        boolean hasOperationalEvidence = (hasExplain || hasActionablePlanImage) && (hasStats || hasRuntime);
         context.setAllowRewrite(hasSchema);
-        context.setAllowIndexDirection(hasSchema && hasIndex);
+        context.setAllowIndexDirection((hasSchema && hasIndex) || hasOperationalEvidence);
         context.setAllowIndexDdl(hasSchema && hasIndex && hasExplain && hasStats && hasVersion);
         context.setAllowHighConfidence(context.isAllowIndexDdl());
+        context.setRestrictIndexDirectionToSql(!hasSchema && hasOperationalEvidence);
 
-        if (!hasSchema) {
+        if (context.isAllowIndexDdl()) {
+            assessment.setCompleteness("FULL");
+            assessment.setMaxConfidence("HIGH");
+            assessment.getPolicyNotes().add("证据完整，可输出可验证候选 DDL");
+        } else if (hasOperationalEvidence) {
+            assessment.setCompleteness(hasSchema ? "SQL_SCHEMA_PLAN_EVIDENCE" : "SQL_PLAN_EVIDENCE");
+            assessment.setMaxConfidence("MEDIUM");
+            assessment.getPolicyNotes().add("执行计划与运行/统计证据足以输出带前提的索引方向；改写与最终 DDL 仍需更完整结构证据，最终 DDL 还需现有索引、文本 EXPLAIN 与版本核验");
+        } else if (!hasSchema) {
             assessment.setCompleteness("SQL_ONLY");
             assessment.setMaxConfidence("LOW");
             assessment.getPolicyNotes().add("仅 SQL 场景禁止输出确定性改写和索引 DDL");
@@ -95,10 +110,6 @@ public class ContextAssessor {
             assessment.setCompleteness("SQL_SCHEMA_INDEX");
             assessment.setMaxConfidence("MEDIUM");
             assessment.getPolicyNotes().add("缺少 EXPLAIN/统计/版本时，索引建议最高 MEDIUM 且禁止候选 DDL");
-        } else {
-            assessment.setCompleteness("FULL");
-            assessment.setMaxConfidence("HIGH");
-            assessment.getPolicyNotes().add("证据完整，可输出可验证候选 DDL");
         }
         return context;
     }
@@ -118,6 +129,26 @@ public class ContextAssessor {
 
     private boolean hasReadablePlanImageFacts(String value) {
         return hasText(value) && value.trim().startsWith("readable=true");
+    }
+
+    private boolean hasActionablePlanImageFacts(String value) {
+        return hasReadablePlanImageFacts(value)
+                && hasNonEmptyFactList(value, "operators")
+                && (hasNonEmptyFactList(value, "tables") || hasNonEmptyFactList(value, "rowEstimates"));
+    }
+
+    private boolean hasNonEmptyFactList(String value, String key) {
+        if (!hasText(value)) {
+            return false;
+        }
+        for (String line : value.split("\\r?\\n")) {
+            if (!line.startsWith(key + "=")) {
+                continue;
+            }
+            String facts = line.substring(key.length() + 1).trim();
+            return !facts.isEmpty() && !"[]".equals(facts);
+        }
+        return false;
     }
 
     private String trustedRuntimeMetrics(String value) {

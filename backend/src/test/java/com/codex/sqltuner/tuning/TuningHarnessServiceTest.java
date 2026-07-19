@@ -561,6 +561,50 @@ class TuningHarnessServiceTest {
     }
 
     @Test
+    void pastedReportAndReadablePlanImageProduceMediumConfidenceDirectionWithoutDdl() throws Exception {
+        RecordingLlmClient client = new RecordingLlmClient(
+                productionPlanVisionContent(),
+                directionalPlanAdviceContent());
+        TuningHarnessService service = service(client);
+        CreateTuningTaskRequest request = new CreateTuningTaskRequest();
+        request.setDbDialect("OceanBase Oracle");
+        request.setSqlText("SQL ID: B05FC9141039983E7E33ECD3A563E37D\n"
+                + "SQL: SELECT * FROM (SELECT a.CUST_ID, a.CREATE_TIME, b.ADDRESS "
+                + "FROM GRP_CUSTOMER a LEFT JOIN GRP_CUSTOMER_EX b "
+                + "ON a.BE_ID = b.BE_ID AND a.CUST_ID = b.CUST_ID "
+                + "WHERE a.EC_CODE = ? AND a.BE_ID = ? "
+                + "ORDER BY CREATE_TIME DESC, CUST_ID DESC) WHERE ROWNUM <= ?\n"
+                + "执行次数: 21.88\nCPU占比: 41.7%\n平均耗时: 2008ms\n"
+                + "根因: 驱动表疑似扫描放大。优化建议: 请创建复合索引。\n"
+                + "执行计划\nSELECT * FROM GRP_CUSTOMER; 2294867\n"
+                + "SELECT * FROM GRP_CUSTOMER_EX; 2294758");
+        request.setPlanImages(Arrays.asList(planImage("plan.png", pngDataUrl())));
+        request.setDeepAnalysis(Boolean.FALSE);
+
+        SqlTuningTask task = service.createTask(1L, request);
+        service.run(task);
+
+        SqlTuningTask saved = taskRepository.getForUser(task.getId(), 1L);
+        assertThat(client.callCount()).isEqualTo(2);
+        assertThat(client.requests().get(1).getUserPrompt())
+                .contains("contextCompleteness: SQL_PLAN_EVIDENCE")
+                .contains("allowIndexDirection=true")
+                .contains("allowIndexDdl=false");
+        assertThat(saved.getStatus()).isEqualTo(TaskStatus.DONE);
+        assertThat(saved.getResult().getOutcome()).isEqualTo("ADVICE");
+        assertThat(saved.getResult().getContextAssessment().getMaxConfidence()).isEqualTo("MEDIUM");
+        assertThat(saved.getResult().getContextAssessment().getAvailableEvidence())
+                .contains("E_SQL", "E_PLAN_IMAGE", "E_STATS", "E_RUNTIME");
+        assertThat(saved.getResult().getIndexCandidates()).singleElement().satisfies(candidate -> {
+            assertThat(candidate.getTableName()).isEqualTo("GRP_CUSTOMER");
+            assertThat(candidate.getColumnOrder())
+                    .containsExactly("EC_CODE", "BE_ID", "CREATE_TIME DESC", "CUST_ID DESC");
+            assertThat(candidate.getDdl()).isEmpty();
+            assertThat(candidate.getConfidence()).isEqualTo("MEDIUM");
+        });
+    }
+
+    @Test
     void unavailableVisionModelDegradesImageEvidenceWithoutFailingSqlAnalysis() {
         VisionFailingLlmClient client = new VisionFailingLlmClient(mockContent());
         TuningHarnessService service = service(client);
@@ -788,6 +832,94 @@ class TuningHarnessServiceTest {
                 + "\"warnings\":[\"截图事实仅低可信\"],"
                 + "\"rawTextSummary\":\"截图显示 TABLE ACCESS FULL ORDERS rows=100000\""
                 + "}\n```";
+    }
+
+    private String productionPlanVisionContent() {
+        return "{"
+                + "\"readable\":true,"
+                + "\"operators\":[\"PHY_SORT\",\"PHY_NESTED_LOOP_JOIN\",\"PHY_TABLE_SCAN\"],"
+                + "\"tables\":[\"A\",\"B(PKX_GRP_CUSTOMER_EX_ID)\"],"
+                + "\"rowEstimates\":[\"A physical_range_rows=846730 cost=332640\",\"B physical_range_rows=1 cost=27\"],"
+                + "\"warnings\":[\"截图事实需由文本 EXPLAIN 复核\"],"
+                + "\"rawTextSummary\":\"截图显示 A 侧范围扫描成本占主导，B 侧通过命名索引单行探测\""
+                + "}";
+    }
+
+    private String directionalPlanAdviceContent() throws Exception {
+        com.fasterxml.jackson.databind.node.ObjectNode root =
+                (com.fasterxml.jackson.databind.node.ObjectNode) objectMapper.readTree(mockContent());
+        root.put("outcome", "ADVICE");
+        root.put("summary", "主要瓶颈位于 GRP_CUSTOMER 的过滤与排序访问路径，应先验证复合索引方向，而不是给内表重复建索引。");
+
+        com.fasterxml.jackson.databind.node.ObjectNode narrative = root.with("analysisNarrative");
+        narrative.put("conclusion", "最终结论：优先验证 GRP_CUSTOMER 的过滤加排序复合索引方向；GRP_CUSTOMER_EX 已显示命名索引单行探测，暂不重复建索引。");
+        com.fasterxml.jackson.databind.node.ArrayNode sections = narrative.putArray("sections");
+        com.fasterxml.jackson.databind.node.ObjectNode evidence = sections.addObject();
+        evidence.put("kind", "EVIDENCE");
+        evidence.put("title", "依据");
+        evidence.put("body", "- 截图显示，待文本 EXPLAIN 确认：A 侧范围扫描成本占主导\n- 截图显示，待文本 EXPLAIN 确认：B 侧经命名索引进行单行探测\n- 当前平均耗时与大表规模支持优先核验 A 侧访问路径");
+        evidence.putArray("evidenceRefs").add("E_SQL").add("E_PLAN_IMAGE").add("E_STATS").add("E_RUNTIME");
+        com.fasterxml.jackson.databind.node.ObjectNode action = sections.addObject();
+        action.put("kind", "ACTION");
+        action.put("title", "主建议");
+        action.put("body", "- 以 EC_CODE、BE_ID 等值过滤列为前导，再衔接 CREATE_TIME、CUST_ID 排序列形成条件式索引方向；核对现有索引后再生成最终 DDL");
+        action.putArray("evidenceRefs").add("E_SQL").add("E_PLAN_IMAGE");
+        com.fasterxml.jackson.databind.node.ObjectNode validation = sections.addObject();
+        validation.put("kind", "VALIDATION");
+        validation.put("title", "验证信号");
+        validation.put("body", "- A 侧由大范围扫描转为索引范围访问\n- PHY_SORT 消失或由 Top-N 有序访问替代\n- B 侧继续保持命名索引单行探测");
+        validation.putArray("evidenceRefs").add("E_SQL").add("E_PLAN_IMAGE");
+
+        com.fasterxml.jackson.databind.node.ArrayNode catalog = root.putArray("evidenceCatalog");
+        addEvidence(catalog, "E_SQL", "USER_SQL", "用户提供的 SQL", "HIGH");
+        addEvidence(catalog, "E_PLAN_IMAGE", "VISION_PLAN_IMAGE", "截图提取的执行计划事实", "LOW");
+        addEvidence(catalog, "E_STATS", "USER_STATS", "用户提供两张表的行数", "MEDIUM");
+        addEvidence(catalog, "E_RUNTIME", "USER_RUNTIME", "用户提供平均耗时与 CPU 占比", "MEDIUM");
+
+        com.fasterxml.jackson.databind.node.ArrayNode diagnoses = root.putArray("diagnoses");
+        com.fasterxml.jackson.databind.node.ObjectNode diagnosis = diagnoses.addObject();
+        diagnosis.put("severity", "HIGH");
+        diagnosis.put("title", "A 侧过滤与排序访问成本占主导");
+        diagnosis.put("impact", "截图中的 A 侧范围访问明显重于 B 侧命名索引探测，是当前首要核验方向。");
+        diagnosis.put("confidence", "MEDIUM");
+        diagnosis.put("precondition", "截图数值需由文本 EXPLAIN 交叉确认");
+        diagnosis.putArray("evidenceRefs").add("E_SQL").add("E_PLAN_IMAGE").add("E_STATS").add("E_RUNTIME");
+
+        root.putArray("rewriteCandidates");
+        com.fasterxml.jackson.databind.node.ArrayNode indexes = root.putArray("indexCandidates");
+        com.fasterxml.jackson.databind.node.ObjectNode index = indexes.addObject();
+        index.put("tableName", "GRP_CUSTOMER");
+        index.putArray("columnOrder").add("EC_CODE").add("BE_ID").add("CREATE_TIME DESC").add("CUST_ID DESC");
+        index.put("ddl", "");
+        index.put("benefit", "同时服务等值过滤和 Top-N 排序，目标是缩小 A 侧访问范围并避免额外排序。");
+        index.put("writeCost", "会增加索引存储与写入维护成本，需结合写入量评估。");
+        index.put("risk", "尚未取得表结构、分区方式和现有索引，当前仅为条件式方向，不能直接生成 DDL。");
+        index.put("validation", "核对现有索引后比较计划中的 A 侧访问方式、排序算子和同口径运行指标。");
+        index.put("confidence", "MEDIUM");
+        index.putArray("evidenceRefs").add("E_SQL").add("E_PLAN_IMAGE").add("E_STATS").add("E_RUNTIME");
+
+        com.fasterxml.jackson.databind.node.ArrayNode validationPlan = root.putArray("validationPlan");
+        com.fasterxml.jackson.databind.node.ObjectNode step = validationPlan.addObject();
+        step.put("action", "核对现有索引并在测试环境比较候选方向前后的执行计划");
+        step.put("expectedSignal", "A 侧访问范围与排序成本下降，B 侧仍保持命名索引单行探测");
+        step.putArray("evidenceRefs").add("E_SQL").add("E_PLAN_IMAGE");
+        root.putArray("missingInformation")
+                .add("两表现有索引完整定义")
+                .add("表结构、分区方式与 OceanBase 版本");
+        root.putArray("safetyWarnings").add("最终建索引前必须排除重复索引并评估写入成本");
+        return objectMapper.writeValueAsString(root);
+    }
+
+    private void addEvidence(com.fasterxml.jackson.databind.node.ArrayNode catalog,
+                             String id,
+                             String source,
+                             String summary,
+                             String trustLevel) {
+        com.fasterxml.jackson.databind.node.ObjectNode evidence = catalog.addObject();
+        evidence.put("id", id);
+        evidence.put("source", source);
+        evidence.put("summary", summary);
+        evidence.put("trustLevel", trustLevel);
     }
 
     private String withNullTopLevelField(String field) throws Exception {

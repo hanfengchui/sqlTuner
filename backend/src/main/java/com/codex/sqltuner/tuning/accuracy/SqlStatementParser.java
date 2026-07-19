@@ -88,6 +88,7 @@ public class SqlStatementParser {
         }
 
         profile.setTables(extractTables(statement, dialect));
+        profile.setIndexRelevantColumns(extractIndexRelevantColumns(statement, dialect));
         fillSemanticProfile(profile, statement);
         String lower = value.toLowerCase(Locale.ROOT);
         profile.setHasWhere(containsWord(lower, "where") && !profile.getWherePredicates().isEmpty());
@@ -404,6 +405,25 @@ public class SqlStatementParser {
             tables.add(cleanIdentifier(name.getName()));
         }
         return new ArrayList<String>(tables);
+    }
+
+    private List<String> extractIndexRelevantColumns(SQLStatement statement, SqlDialect dialect) {
+        Set<String> columns = new LinkedHashSet<String>();
+        SchemaStatVisitor visitor = dialect == SqlDialect.OB_ORACLE
+                ? new OracleSchemaStatVisitor()
+                : new MySqlSchemaStatVisitor();
+        statement.accept(visitor);
+        Set<TableStat.Column> orderByColumns = new LinkedHashSet<TableStat.Column>(visitor.getOrderByColumns());
+        for (TableStat.Column column : visitor.getColumns()) {
+            if (!(column.isWhere() || column.isJoin() || column.isGroupBy() || orderByColumns.contains(column))) {
+                continue;
+            }
+            String name = cleanIdentifier(column.getName());
+            if (name.matches("[A-Za-z0-9_$#]+")) {
+                columns.add(name.toLowerCase(Locale.ROOT));
+            }
+        }
+        return new ArrayList<String>(columns);
     }
 
     private String cleanIdentifier(String value) {

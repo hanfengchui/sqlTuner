@@ -1016,7 +1016,7 @@ public class TuningHarnessService {
 
     private void applyContextDefaults(TuningResult result, ContextPackage context) {
         if (!hasText(result.getOutcome())) {
-            result.setOutcome(context.isAllowRewrite() ? "ADVICE" : "NEEDS_INPUT");
+            result.setOutcome(context.isAllowRewrite() || context.isAllowIndexDirection() ? "ADVICE" : "NEEDS_INPUT");
         }
         if (!hasText(result.getSummary())) {
             result.setSummary("已完成结构化 SQL 诊断。");

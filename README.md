@@ -69,7 +69,7 @@ Never commit real API keys.
 - Default model provider is `mock`; configure `DASHSCOPE_API_KEY` and `LLM_PROVIDER=dashscope` or another OpenAI-compatible provider for real model calls.
 - `LLM_REASONING_EFFORT` is optional. Set `low`, `medium`, `high`, or `xhigh` only when the configured OpenAI-compatible gateway supports Chat Completions `reasoning_effort`; leave it empty for ordinary providers.
 - Users choose OceanBase MySQL or OceanBase Oracle, then paste a single SQL statement or complete inspection-report text. Optional PNG/JPEG/WebP screenshots can be attached. A single report can include labeled `OceanBase 版本`, `表结构`, `现有索引`, `执行计划`, and `表统计` sections; the server extracts them without extra form fields. Historical root-cause and optimization-advice sections remain untrusted background, not evidence. DOC/DOCX/PDF import is intentionally unsupported.
-- The service does not connect to production databases, execute SQL, or apply DDL. Missing evidence lowers the confidence ceiling and blocks deterministic rewrite/index DDL output.
+- The service does not connect to production databases, execute SQL, or apply DDL. A readable plan screenshot plus direct runtime metrics or table statistics can produce a conditional MEDIUM-confidence index direction using only tables and relevant columns already present in the SQL. Missing schema/current-index/text-EXPLAIN/version evidence still blocks deterministic index DDL, HIGH confidence, and schema-dependent rewrites.
 - Admin users can edit provider, base URL, model name, timeout, and API Key from the Model Config page. API keys are encrypted with `SQL_TUNER_DATA_KEY` and are never returned to the frontend in plaintext.
 
 ## Initial Accounts

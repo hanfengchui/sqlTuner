@@ -348,6 +348,12 @@ public class StrictResultValidator {
             String candidateTable = candidateDdl == null
                     ? normalizeIdentifier(candidate.getTableName())
                     : candidateDdl.table;
+            if (candidateColumns.isEmpty()) {
+                outcome.reject("indexCandidates.columnOrder 包含非法或不可识别列名");
+            }
+            if (context.isRestrictIndexDirectionToSql()) {
+                validateIndexDirectionReferencesSql(candidateTable, candidateColumns, originalProfile, outcome);
+            }
             if (isCoveredByExistingIndex(candidateTable, candidateColumns, context.getIndexText(), originalProfile)) {
                 outcome.reject("indexCandidates 与现有索引前缀重复: " + safeIdentifier(candidate.getTableName()));
             }
@@ -356,6 +362,39 @@ public class StrictResultValidator {
             }
             if (!context.isAllowHighConfidence() && "HIGH".equalsIgnoreCase(candidate.getConfidence())) {
                 candidate.setConfidence("MEDIUM");
+            }
+        }
+    }
+
+    private void validateIndexDirectionReferencesSql(String candidateTable,
+                                                      List<String> candidateColumns,
+                                                      SqlStatementProfile originalProfile,
+                                                      ValidationOutcome outcome) {
+        if (originalProfile == null) {
+            outcome.reject("缺少原 SQL 结构，无法校验索引方向");
+            return;
+        }
+        boolean tableReferenced = false;
+        for (String table : originalProfile.getTables()) {
+            if (candidateTable.equals(normalizeIdentifier(table))) {
+                tableReferenced = true;
+                break;
+            }
+        }
+        if (!tableReferenced) {
+            outcome.reject("indexCandidates 引用了原 SQL 中不存在的表: " + safeIdentifier(candidateTable));
+        }
+
+        Set<String> referencedColumns = new HashSet<String>();
+        for (String column : originalProfile.getIndexRelevantColumns()) {
+            referencedColumns.add(normalizeIdentifier(column));
+        }
+        for (String column : candidateColumns) {
+            int separator = column.lastIndexOf(' ');
+            String name = separator < 0 ? column : column.substring(0, separator);
+            if (!referencedColumns.contains(normalizeIdentifier(name))) {
+                outcome.reject("indexCandidates 引用了原 SQL 过滤、连接、分组或排序中不存在的列: "
+                        + safeIdentifier(name));
             }
         }
     }

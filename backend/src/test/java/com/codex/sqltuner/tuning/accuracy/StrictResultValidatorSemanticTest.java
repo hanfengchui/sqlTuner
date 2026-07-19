@@ -676,6 +676,49 @@ class StrictResultValidatorSemanticTest {
     }
 
     @Test
+    void acceptsSqlBoundIndexDirectionWithoutDdlForPlanEvidenceMode() {
+        String sql = "SELECT * FROM (SELECT a.CUST_ID FROM GRP_CUSTOMER a "
+                + "WHERE a.EC_CODE = 1 AND a.BE_ID = 2 "
+                + "ORDER BY CREATE_TIME DESC, CUST_ID DESC) WHERE ROWNUM <= 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_ORACLE);
+        assertThat(profile.getIndexRelevantColumns())
+                .contains("ec_code", "be_id", "create_time", "cust_id");
+        TuningResult result = validResult(sql);
+        result.setIndexCandidates(new ArrayList<IndexCandidate>(Collections.singletonList(
+                indexCandidate("GRP_CUSTOMER", "EC_CODE", "BE_ID", "CREATE_TIME DESC", "CUST_ID DESC"))));
+        ContextPackage context = context();
+        context.setAllowIndexDdl(false);
+        context.setAllowHighConfidence(false);
+        context.setRestrictIndexDirectionToSql(true);
+
+        ValidationOutcome outcome = validator.validate(result, context, profile, SqlDialect.OB_ORACLE);
+
+        assertThat(outcome.isValid()).isTrue();
+        assertThat(result.getIndexCandidates()).singleElement().satisfies(candidate -> {
+            assertThat(candidate.getDdl()).isNullOrEmpty();
+            assertThat(candidate.getConfidence()).isEqualTo("MEDIUM");
+        });
+    }
+
+    @Test
+    void rejectsPlanEvidenceIndexDirectionThatInventsAColumn() {
+        String sql = "SELECT id FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        result.setIndexCandidates(new ArrayList<IndexCandidate>(Collections.singletonList(
+                indexCandidate("orders", "tenant_id", "invented_column"))));
+        ContextPackage context = context();
+        context.setAllowIndexDdl(false);
+        context.setAllowHighConfidence(false);
+        context.setRestrictIndexDirectionToSql(true);
+
+        ValidationOutcome outcome = validator.validate(result, context, profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isFalse();
+        assertThat(outcome.summary()).contains("原 SQL").contains("invented_column");
+    }
+
+    @Test
     void acceptsCandidateThatExtendsInlinePrimaryKey() {
         String sql = "SELECT * FROM orders WHERE tenant_id = 1 AND status = 'OPEN' ORDER BY created_at DESC LIMIT 10";
         SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);

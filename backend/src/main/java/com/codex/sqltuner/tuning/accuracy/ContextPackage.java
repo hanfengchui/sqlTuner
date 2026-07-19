@@ -13,6 +13,7 @@ public class ContextPackage {
     private boolean allowIndexDirection;
     private boolean allowIndexDdl;
     private boolean allowHighConfidence;
+    private boolean restrictIndexDirectionToSql;
     private String indexText = "";
     private String explainText = "";
     private String runtimeMetricsText = "";
@@ -63,6 +64,14 @@ public class ContextPackage {
 
     public void setAllowHighConfidence(boolean allowHighConfidence) {
         this.allowHighConfidence = allowHighConfidence;
+    }
+
+    public boolean isRestrictIndexDirectionToSql() {
+        return restrictIndexDirectionToSql;
+    }
+
+    public void setRestrictIndexDirectionToSql(boolean restrictIndexDirectionToSql) {
+        this.restrictIndexDirectionToSql = restrictIndexDirectionToSql;
     }
 
     public String getIndexText() {
