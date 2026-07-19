@@ -21,8 +21,15 @@ external API.
 | 30-32 | Lease-race production deep smoke | Initial analysis and reviewer ran, but a stale in-memory lease overwrote heartbeat renewals and allowed one duplicate analysis call. Optimistic locking prevented duplicate completion. State transitions were changed so they can extend or clear, but never shorten, a renewed lease. |
 | 33-34 | Final production deep smoke after lease correction | `DONE` on one worker attempt with `ADVICE` and reviewer verdict `REVISE`; 3 diagnoses, 1 index candidate and 9 durable artifacts. Queue returned to zero running/queued tasks. |
 | 35 | Supplied Oracle Top-N report checked with `qwen3.7-plus` | The model correctly identified the large driving-table scan, join/index direction and Top-N/Stopkey concern, but it was too confident that an index DDL could be executed without complete schema, current-index, plan, version and write-cost evidence. The free-form response was not the application's strict JSON shape. Verdict: useful only behind the evidence gate and strict validator. |
+| 36-39 | First four application A/B tasks after switching from Grok | All four requests were rejected with HTTP 401 because the production environment had an empty bootstrap DashScope key and the database still held the Grok gateway key. These calls count conservatively but are excluded from accuracy scoring. |
+| 40-41 | Supplied Oracle report, valid-key task 1034 | The first response and its one repair both violated field types; the task failed safely. |
+| 42-43 | Evidence-insufficient task 1035 | The first response and repair both violated the strict result structure; the task failed safely without exposing a partial answer. |
+| 44 | Full-evidence task 1036 | First-call `DONE`, but the accepted text described `estimated rows=100000` as a scanned row count. This exposed a semantic hole in the old validator and triggered the row-claim hardening. |
+| 45-46 | Oracle semantic trap task 1037 | The first response missed required fields; one repair reached `DONE`, preserved LEFT JOIN/ROWNUM semantics and did not duplicate the existing right-table index. |
+| 47 | Release `81c86d7`, supplied Oracle report task 1038 | First-call `DONE / NEEDS_INPUT` in 111.201 s. It identified the driving scan and sort, returned no rewrite/index candidate and needed no repair. |
+| 48-49 | Release `81c86d7`, full-evidence task 1039 | The 89.515 s first response was rejected because it presented estimated rows as an actual row claim. The only repair completed in 49.818 s and produced a safe `DONE / ADVICE` result with one evidence-backed composite-index candidate. |
 
-Current usage: **35 / 60**. Remaining budget: **25**.
+Current usage: **49 / 60**. Remaining budget: **11**.
 
 Because the first nine diagnostic requests were real external calls, the
 original target of 40 standard tasks plus 10 deep tasks can no longer fit under
