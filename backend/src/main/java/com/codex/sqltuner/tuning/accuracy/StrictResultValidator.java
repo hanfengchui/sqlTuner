@@ -145,9 +145,7 @@ public class StrictResultValidator {
         validateIndexCandidates(result, context, originalProfile, evidenceIds, outcome);
         validateValidationPlan(result, evidenceIds, outcome);
         validateSupplementalText(result, dialect, context, outcome);
-        if (!context.isAllowHighConfidence()) {
-            downgradeHighConfidence(result);
-        }
+        capConfidenceToContext(result, context);
         if (!context.isAllowRewrite() && !result.getRewriteCandidates().isEmpty()) {
             outcome.reject("仅 SQL 场景禁止输出 rewriteCandidates");
         }
@@ -359,9 +357,6 @@ public class StrictResultValidator {
             }
             if (!context.isAllowIndexDdl() && hasText(candidate.getDdl())) {
                 outcome.reject("证据不足时禁止输出候选索引 DDL");
-            }
-            if (!context.isAllowHighConfidence() && "HIGH".equalsIgnoreCase(candidate.getConfidence())) {
-                candidate.setConfidence("MEDIUM");
             }
         }
     }
@@ -1062,12 +1057,36 @@ public class StrictResultValidator {
         }
     }
 
-    private void downgradeHighConfidence(TuningResult result) {
+    private void capConfidenceToContext(TuningResult result, ContextPackage context) {
+        String maxConfidence = context.getAssessment() != null && hasText(context.getAssessment().getMaxConfidence())
+                ? context.getAssessment().getMaxConfidence().trim().toUpperCase(Locale.ROOT)
+                : (context.isAllowHighConfidence() ? "HIGH" : "MEDIUM");
         for (Diagnosis diagnosis : result.getDiagnoses()) {
-            if ("HIGH".equalsIgnoreCase(diagnosis.getConfidence())) {
-                diagnosis.setConfidence("MEDIUM");
-            }
+            diagnosis.setConfidence(cappedConfidence(diagnosis.getConfidence(), maxConfidence));
         }
+        for (IndexCandidate candidate : result.getIndexCandidates()) {
+            candidate.setConfidence(cappedConfidence(candidate.getConfidence(), maxConfidence));
+        }
+    }
+
+    private String cappedConfidence(String confidence, String maxConfidence) {
+        if (!hasText(confidence) || confidenceRank(confidence) <= confidenceRank(maxConfidence)) {
+            return confidence;
+        }
+        return maxConfidence;
+    }
+
+    private int confidenceRank(String confidence) {
+        if ("HIGH".equalsIgnoreCase(confidence)) {
+            return 3;
+        }
+        if ("MEDIUM".equalsIgnoreCase(confidence)) {
+            return 2;
+        }
+        if ("LOW".equalsIgnoreCase(confidence)) {
+            return 1;
+        }
+        return 0;
     }
 
     private boolean sameTables(SqlStatementProfile original, SqlStatementProfile rewrite) {

@@ -4,6 +4,7 @@ import com.codex.sqltuner.rule.SqlDialect;
 import com.codex.sqltuner.tuning.TuningResult;
 import com.codex.sqltuner.tuning.result.AnalysisNarrative;
 import com.codex.sqltuner.tuning.result.ContextAssessment;
+import com.codex.sqltuner.tuning.result.Diagnosis;
 import com.codex.sqltuner.tuning.result.EvidenceItem;
 import com.codex.sqltuner.tuning.result.IndexCandidate;
 import com.codex.sqltuner.tuning.result.NarrativeSection;
@@ -698,6 +699,40 @@ class StrictResultValidatorSemanticTest {
             assertThat(candidate.getDdl()).isNullOrEmpty();
             assertThat(candidate.getConfidence()).isEqualTo("MEDIUM");
         });
+    }
+
+    @Test
+    void capsDiagnosisAndIndexConfidenceAtContextAssessmentMaximum() {
+        String sql = "SELECT id FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+
+        Diagnosis diagnosis = new Diagnosis();
+        diagnosis.setSeverity("WARN");
+        diagnosis.setTitle("需要核验的访问路径风险");
+        diagnosis.setImpact("可能产生额外扫描");
+        diagnosis.setConfidence("MEDIUM");
+        diagnosis.setPrecondition("需要执行计划确认");
+        diagnosis.setEvidenceRefs(Collections.singletonList("E1"));
+        result.setDiagnoses(new ArrayList<Diagnosis>(Collections.singletonList(diagnosis)));
+
+        IndexCandidate candidate = indexCandidate("orders", "tenant_id", "created_at DESC");
+        candidate.setConfidence("HIGH");
+        result.setIndexCandidates(new ArrayList<IndexCandidate>(Collections.singletonList(candidate)));
+
+        ContextPackage context = context();
+        ContextAssessment assessment = new ContextAssessment();
+        assessment.setMaxConfidence("LOW");
+        context.setAssessment(assessment);
+        context.setAllowHighConfidence(false);
+
+        ValidationOutcome outcome = validator.validate(result, context, profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isTrue();
+        assertThat(result.getDiagnoses()).singleElement()
+                .satisfies(value -> assertThat(value.getConfidence()).isEqualTo("LOW"));
+        assertThat(result.getIndexCandidates()).singleElement()
+                .satisfies(value -> assertThat(value.getConfidence()).isEqualTo("LOW"));
     }
 
     @Test
