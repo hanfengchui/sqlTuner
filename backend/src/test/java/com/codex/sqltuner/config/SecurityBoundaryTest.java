@@ -5,6 +5,14 @@ import com.codex.sqltuner.auth.AuthService;
 import com.codex.sqltuner.auth.UserAccount;
 import com.codex.sqltuner.auth.UserRole;
 import com.codex.sqltuner.common.GlobalExceptionHandler;
+import com.codex.sqltuner.conversation.ConversationController;
+import com.codex.sqltuner.conversation.ConversationRepository;
+import com.codex.sqltuner.tuning.CreateTuningTaskRequest;
+import com.codex.sqltuner.tuning.SqlTuningTask;
+import com.codex.sqltuner.tuning.TaskEventBroker;
+import com.codex.sqltuner.tuning.TuningController;
+import com.codex.sqltuner.tuning.TuningHarnessService;
+import com.codex.sqltuner.tuning.TuningTaskRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -17,11 +25,15 @@ import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import javax.annotation.Resource;
+import javax.servlet.http.Cookie;
+
+import java.util.Collections;
 import java.util.Properties;
 
-import javax.annotation.Resource;
-
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -29,7 +41,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(controllers = {AdminConfigController.class, AuthController.class})
+@WebMvcTest(controllers = {
+        AdminConfigController.class,
+        AuthController.class,
+        ConversationController.class,
+        TuningController.class
+})
 @Import({SecurityConfig.class, GlobalExceptionHandler.class})
 class SecurityBoundaryTest {
     @Resource
@@ -43,6 +60,21 @@ class SecurityBoundaryTest {
 
     @MockBean
     private AuthService authService;
+
+    @MockBean
+    private ConversationRepository conversationRepository;
+
+    @MockBean
+    private TuningHarnessService tuningHarnessService;
+
+    @MockBean
+    private TuningTaskRepository tuningTaskRepository;
+
+    @MockBean
+    private TaskEventBroker taskEventBroker;
+
+    @MockBean
+    private QueueProperties queueProperties;
 
     @Test
     void unauthenticatedAdminReadIsRejected() throws Exception {
@@ -62,6 +94,86 @@ class SecurityBoundaryTest {
                         .contentType("application/json")
                         .content("{}"))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void regularUserCannotReadOrWriteAdministratorConfiguration() throws Exception {
+        MockHttpSession session = session(UserRole.USER);
+
+        mockMvc.perform(get("/api/admin/model-config").session(session))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        CsrfRequest csrf = csrfRequest();
+        mockMvc.perform(post("/api/admin/model-config")
+                        .session(session)
+                        .cookie(csrf.cookie)
+                        .header(csrf.token.getHeaderName(), csrf.token.getToken())
+                        .contentType("application/json")
+                        .content("{\"provider\":\"openai-compatible\",\"model\":\"forbidden-model\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
+    @Test
+    void administratorCanReadAndWriteModelConfiguration() throws Exception {
+        MockHttpSession session = session(UserRole.ADMIN);
+        ModelConfigView view = new ModelConfigView(
+                "openai-compatible",
+                "https://example.invalid/v1",
+                "configured-model",
+                null,
+                60000,
+                true,
+                "ready");
+        when(modelConfigService.view()).thenReturn(view);
+        when(modelConfigService.update(any(ModelConfigUpdateRequest.class))).thenReturn(view);
+
+        mockMvc.perform(get("/api/admin/model-config").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.model").value("configured-model"));
+
+        CsrfRequest csrf = csrfRequest();
+        mockMvc.perform(post("/api/admin/model-config")
+                        .session(session)
+                        .cookie(csrf.cookie)
+                        .header(csrf.token.getHeaderName(), csrf.token.getToken())
+                        .contentType("application/json")
+                        .content("{\"provider\":\"openai-compatible\",\"model\":\"configured-model\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.model").value("configured-model"));
+    }
+
+    @Test
+    void regularUserCanUseConversationAndTuningApis() throws Exception {
+        MockHttpSession session = session(UserRole.USER);
+        when(conversationRepository.listByUser(2L)).thenReturn(Collections.emptyList());
+
+        mockMvc.perform(get("/api/conversations").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").isArray());
+
+        SqlTuningTask task = new SqlTuningTask();
+        task.setId(17L);
+        task.setUserId(2L);
+        task.setConversationId(9L);
+        when(queueProperties.getMaxQueuedGlobal()).thenReturn(100);
+        when(queueProperties.getMaxQueuedPerUser()).thenReturn(10);
+        when(tuningHarnessService.createTask(eq(2L), any(CreateTuningTaskRequest.class), eq("user-security-test")))
+                .thenReturn(task);
+        when(tuningTaskRepository.queuePosition(task)).thenReturn(1);
+
+        CsrfRequest csrf = csrfRequest();
+        mockMvc.perform(post("/api/tuning/tasks")
+                        .session(session)
+                        .cookie(csrf.cookie)
+                        .header(csrf.token.getHeaderName(), csrf.token.getToken())
+                        .header("Idempotency-Key", "user-security-test")
+                        .contentType("application/json")
+                        .content("{\"dbDialect\":\"OceanBase MySQL\",\"sqlText\":\"SELECT id FROM orders WHERE id = 1\",\"deepAnalysis\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(17))
+                .andExpect(jsonPath("$.data.userId").value(2));
     }
 
     @Test
@@ -109,5 +221,31 @@ class SecurityBoundaryTest {
         assertThat(properties).isNotNull();
         assertThat(properties.getProperty("server.servlet.session.cookie.http-only")).isEqualTo("true");
         assertThat(properties.getProperty("server.servlet.session.cookie.same-site")).isEqualTo("lax");
+    }
+
+    private MockHttpSession session(UserRole role) {
+        MockHttpSession session = new MockHttpSession();
+        long userId = role == UserRole.ADMIN ? 1L : 2L;
+        session.setAttribute(AuthService.SESSION_USER,
+                new UserAccount(userId, role.name().toLowerCase(), role.name(), null, role));
+        return session;
+    }
+
+    private CsrfRequest csrfRequest() throws Exception {
+        MvcResult result = mockMvc.perform(get("/api/auth/csrf"))
+                .andExpect(status().isOk())
+                .andReturn();
+        CsrfToken token = (CsrfToken) result.getRequest().getAttribute(CsrfToken.class.getName());
+        return new CsrfRequest(token, result.getResponse().getCookie("XSRF-TOKEN"));
+    }
+
+    private static final class CsrfRequest {
+        private final CsrfToken token;
+        private final Cookie cookie;
+
+        private CsrfRequest(CsrfToken token, Cookie cookie) {
+            this.token = token;
+            this.cookie = cookie;
+        }
     }
 }

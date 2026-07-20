@@ -35,7 +35,33 @@ describe("AppShell", () => {
     expect(conversationList).not.toBeNull();
     expect(within(conversationList as HTMLElement).getByText("库存分页查询")).toBeInTheDocument();
     expect(within(conversationList as HTMLElement).queryByText("订单慢 SQL")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "规则" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "模型" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "技能" })).toBeInTheDocument();
+  });
+
+  it("does not expose administrator navigation to regular users", () => {
+    render(
+      <AppShell
+        user={{ id: 2, username: "user", displayName: "User", role: "USER" }}
+        conversations={conversations}
+        activeConversationId={1}
+        currentRoute="/chat"
+        theme="light"
+        onToggleTheme={vi.fn()}
+        onNewConversation={vi.fn()}
+        onSelectConversation={vi.fn()}
+        onDeleteConversation={vi.fn()}
+        onNavigate={vi.fn()}
+        onLogout={vi.fn()}
+      >
+        <div>workspace</div>
+      </AppShell>
+    );
+
+    expect(screen.queryByRole("button", { name: "规则" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "模型" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "技能" })).not.toBeInTheDocument();
   });
 
   it("uses an explicit back control on administrator routes", async () => {

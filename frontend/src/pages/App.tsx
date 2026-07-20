@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
+import { AdminRoute } from "../components/AdminRoute";
 import { AppShell } from "../components/AppShell";
 import { useTheme } from "../lib/useTheme";
 import type { Conversation, SqlTuningTask, UserView } from "../types/api";
@@ -137,9 +138,30 @@ export function App() {
             />
           }
         />
-        <Route path="/admin/skills" element={<SkillAdminPage />} />
-        <Route path="/admin/model" element={<ModelConfigPage />} />
-        <Route path="/admin/rules" element={<RuleAdminPage />} />
+        <Route
+          path="/admin/skills"
+          element={
+            <AdminRoute user={user}>
+              <SkillAdminPage />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/admin/model"
+          element={
+            <AdminRoute user={user}>
+              <ModelConfigPage />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/admin/rules"
+          element={
+            <AdminRoute user={user}>
+              <RuleAdminPage />
+            </AdminRoute>
+          }
+        />
         <Route path="*" element={<Navigate to="/chat" replace />} />
       </Routes>
     </AppShell>
