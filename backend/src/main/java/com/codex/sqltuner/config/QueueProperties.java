@@ -6,8 +6,8 @@ import org.springframework.stereotype.Component;
 @Component
 @ConfigurationProperties(prefix = "app.queue")
 public class QueueProperties {
-    private int workerCount = 8;
-    private int maxRunning = 8;
+    private int workerCount = 10;
+    private int maxRunning = 10;
     private int maxQueuedGlobal = 100;
     private int maxQueuedPerUser = 10;
     private int leaseSeconds = 90;

@@ -436,8 +436,9 @@ public class ConfigurableLlmClient implements LlmClient {
 
     private HttpComponentsClientHttpRequestFactory buildRequestFactory() {
         PoolingHttpClientConnectionManager connectionManager = new PoolingHttpClientConnectionManager();
-        connectionManager.setMaxTotal(32);
-        connectionManager.setDefaultMaxPerRoute(8);
+        int maxPerRoute = Math.max(1, maxConcurrentLlm);
+        connectionManager.setMaxTotal(Math.max(32, maxPerRoute * 2));
+        connectionManager.setDefaultMaxPerRoute(maxPerRoute);
         RequestConfig config = RequestConfig.custom()
                 .setConnectTimeout(properties.getTimeoutMs())
                 .setSocketTimeout(properties.getTimeoutMs())

@@ -80,17 +80,17 @@ class TuningQueueWorkerConcurrencyTest {
     }
 
     @Test
-    void dispatchRunsEightTasksAndLeavesNinthQueued() throws Exception {
+    void dispatchRunsTenTasksAndLeavesEleventhQueued() throws Exception {
         JdbcTemplate jdbcTemplate = JdbcTestSupport.jdbcTemplate();
         QueueProperties queueProperties = new QueueProperties();
-        queueProperties.setWorkerCount(8);
-        queueProperties.setMaxRunning(8);
+        queueProperties.setWorkerCount(10);
+        queueProperties.setMaxRunning(10);
         TuningTaskRepository repository = repository(jdbcTemplate, queueProperties);
-        List<SqlTuningTask> tasks = createQueuedTasks(jdbcTemplate, repository, 9);
+        List<SqlTuningTask> tasks = createQueuedTasks(jdbcTemplate, repository, 11);
 
-        CountDownLatch eightStarted = new CountDownLatch(8);
+        CountDownLatch tenStarted = new CountDownLatch(10);
         CountDownLatch releaseWorkers = new CountDownLatch(1);
-        CountDownLatch eightCompleted = new CountDownLatch(8);
+        CountDownLatch tenCompleted = new CountDownLatch(10);
         AtomicInteger running = new AtomicInteger();
         AtomicInteger maxConcurrent = new AtomicInteger();
         TuningHarnessService harnessService = mock(TuningHarnessService.class);
@@ -98,11 +98,11 @@ class TuningQueueWorkerConcurrencyTest {
             try {
                 int current = running.incrementAndGet();
                 maxConcurrent.updateAndGet(previous -> Math.max(previous, current));
-                eightStarted.countDown();
+                tenStarted.countDown();
                 assertThat(releaseWorkers.await(10, TimeUnit.SECONDS)).isTrue();
                 running.decrementAndGet();
             } finally {
-                eightCompleted.countDown();
+                tenCompleted.countDown();
             }
             return null;
         }).when(harnessService).run(any(SqlTuningTask.class));
@@ -110,20 +110,20 @@ class TuningQueueWorkerConcurrencyTest {
         TuningQueueWorker worker = new TuningQueueWorker(repository, harnessService, new TaskEventBroker(), queueProperties);
         try {
             worker.dispatch();
-            assertThat(eightStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(tenStarted.await(5, TimeUnit.SECONDS)).isTrue();
 
             Integer received = jdbcTemplate.queryForObject(
                     "SELECT COUNT(*) FROM tuning_tasks WHERE status = 'RECEIVED'", Integer.class);
             Integer queued = jdbcTemplate.queryForObject(
                     "SELECT COUNT(*) FROM tuning_tasks WHERE status = 'QUEUED'", Integer.class);
-            assertThat(received).isEqualTo(8);
+            assertThat(received).isEqualTo(10);
             assertThat(queued).isEqualTo(1);
-            assertThat(repository.get(tasks.get(8).getId()).getStatus()).isEqualTo(TaskStatus.QUEUED);
-            assertThat(maxConcurrent.get()).isEqualTo(8);
+            assertThat(repository.get(tasks.get(10).getId()).getStatus()).isEqualTo(TaskStatus.QUEUED);
+            assertThat(maxConcurrent.get()).isEqualTo(10);
         } finally {
             releaseWorkers.countDown();
-            assertThat(eightCompleted.await(5, TimeUnit.SECONDS)).isTrue();
-            assertThat(waitUntilWorkersReleasedLeases(jdbcTemplate, 8)).isTrue();
+            assertThat(tenCompleted.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(waitUntilWorkersReleasedLeases(jdbcTemplate, 10)).isTrue();
             worker.shutdown();
         }
     }

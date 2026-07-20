@@ -8,6 +8,7 @@ MAX_P95_SECONDS="${MAX_P95_SECONDS:-75}"
 MAX_PEAK_MIB="${MAX_PEAK_MIB:-320}"
 MAX_IDLE_MIB="${MAX_IDLE_MIB:-205}"
 MAX_PIDS="${MAX_PIDS:-60}"
+MAX_RESTART_COUNT="${MAX_RESTART_COUNT:-0}"
 
 cd /opt/sql-tuner-compose
 set -a
@@ -127,19 +128,21 @@ IDLE_MIB="$(awk -v value="$IDLE_MEMORY" 'BEGIN {
   print "0.000"
 }')"
 PIDS="$(printf '%s\n' "$IDLE_STATS" | awk '{print $4}')"
+RESTART_COUNT="$(docker inspect --format '{{.RestartCount}}' sql-tuner)"
 
 READINESS_STATUS="$(curl -sS -o "$TMP_DIR/readiness.json" -w '%{http_code}' "$BASE_URL/api/health/ready")"
 READINESS_VALUE="$(jq -r '.data.status // "DOWN"' "$TMP_DIR/readiness.json")"
 WORKERS="${SQL_TUNER_WORKERS:-4}"
 LLM_PARALLEL="${SQL_TUNER_LLM_MAX_PARALLEL:-4}"
 
-echo "RESULT requests=$REQUEST_COUNT success=$SUCCESS_COUNT p50_seconds=$P50_SECONDS p95_seconds=$P95_SECONDS peak_mib=$PEAK_MIB idle_mib=$IDLE_MIB pids=$PIDS workers=$WORKERS llm_parallel=$LLM_PARALLEL readiness_http=$READINESS_STATUS readiness=$READINESS_VALUE"
+echo "RESULT requests=$REQUEST_COUNT success=$SUCCESS_COUNT p50_seconds=$P50_SECONDS p95_seconds=$P95_SECONDS peak_mib=$PEAK_MIB idle_mib=$IDLE_MIB pids=$PIDS restart_count=$RESTART_COUNT workers=$WORKERS llm_parallel=$LLM_PARALLEL readiness_http=$READINESS_STATUS readiness=$READINESS_VALUE"
 
 FAILED=0
 [ "$SUCCESS_COUNT" -eq "$REQUEST_COUNT" ] || FAILED=1
 [ "$WORKERS" -ge "$MIN_WORKERS" ] || FAILED=1
 [ "$LLM_PARALLEL" -ge "$MIN_LLM_PARALLEL" ] || FAILED=1
 [ "$PIDS" -le "$MAX_PIDS" ] || FAILED=1
+[ "$RESTART_COUNT" -le "$MAX_RESTART_COUNT" ] || FAILED=1
 [ "$READINESS_STATUS" = "200" ] || FAILED=1
 [ "$READINESS_VALUE" = "UP" ] || FAILED=1
 awk -v value="$P95_SECONDS" -v limit="$MAX_P95_SECONDS" 'BEGIN { exit !(value <= limit) }' || FAILED=1
