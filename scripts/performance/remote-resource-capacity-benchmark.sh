@@ -99,6 +99,11 @@ for index in $(seq 1 "$REQUEST_COUNT"); do
   MODEL_MOCK="$(jq -r 'if .data.mock == null then true else .data.mock end' "$TMP_DIR/response-${index}.json")"
   if [ "$HTTP_STATUS" = "200" ] && [ "$MODEL_SUCCESS" = "true" ] && [ "$MODEL_MOCK" = "false" ]; then
     SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+  else
+    FAILURE_MESSAGE="$(jq -r '.data.message // .message // "unknown"' "$TMP_DIR/response-${index}.json" \
+      | tr '\n' ' ' \
+      | cut -c 1-240)"
+    echo "DETAIL index=$index http=$HTTP_STATUS success=$MODEL_SUCCESS mock=$MODEL_MOCK message=$FAILURE_MESSAGE"
   fi
 done
 
