@@ -80,17 +80,17 @@ class TuningQueueWorkerConcurrencyTest {
     }
 
     @Test
-    void dispatchRunsFourTasksAndLeavesFifthQueued() throws Exception {
+    void dispatchRunsEightTasksAndLeavesNinthQueued() throws Exception {
         JdbcTemplate jdbcTemplate = JdbcTestSupport.jdbcTemplate();
         QueueProperties queueProperties = new QueueProperties();
-        queueProperties.setWorkerCount(4);
-        queueProperties.setMaxRunning(4);
+        queueProperties.setWorkerCount(8);
+        queueProperties.setMaxRunning(8);
         TuningTaskRepository repository = repository(jdbcTemplate, queueProperties);
-        List<SqlTuningTask> tasks = createQueuedTasks(jdbcTemplate, repository, 5);
+        List<SqlTuningTask> tasks = createQueuedTasks(jdbcTemplate, repository, 9);
 
-        CountDownLatch fourStarted = new CountDownLatch(4);
+        CountDownLatch eightStarted = new CountDownLatch(8);
         CountDownLatch releaseWorkers = new CountDownLatch(1);
-        CountDownLatch fourCompleted = new CountDownLatch(4);
+        CountDownLatch eightCompleted = new CountDownLatch(8);
         AtomicInteger running = new AtomicInteger();
         AtomicInteger maxConcurrent = new AtomicInteger();
         TuningHarnessService harnessService = mock(TuningHarnessService.class);
@@ -98,11 +98,11 @@ class TuningQueueWorkerConcurrencyTest {
             try {
                 int current = running.incrementAndGet();
                 maxConcurrent.updateAndGet(previous -> Math.max(previous, current));
-                fourStarted.countDown();
+                eightStarted.countDown();
                 assertThat(releaseWorkers.await(10, TimeUnit.SECONDS)).isTrue();
                 running.decrementAndGet();
             } finally {
-                fourCompleted.countDown();
+                eightCompleted.countDown();
             }
             return null;
         }).when(harnessService).run(any(SqlTuningTask.class));
@@ -110,20 +110,20 @@ class TuningQueueWorkerConcurrencyTest {
         TuningQueueWorker worker = new TuningQueueWorker(repository, harnessService, new TaskEventBroker(), queueProperties);
         try {
             worker.dispatch();
-            assertThat(fourStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(eightStarted.await(5, TimeUnit.SECONDS)).isTrue();
 
             Integer received = jdbcTemplate.queryForObject(
                     "SELECT COUNT(*) FROM tuning_tasks WHERE status = 'RECEIVED'", Integer.class);
             Integer queued = jdbcTemplate.queryForObject(
                     "SELECT COUNT(*) FROM tuning_tasks WHERE status = 'QUEUED'", Integer.class);
-            assertThat(received).isEqualTo(4);
+            assertThat(received).isEqualTo(8);
             assertThat(queued).isEqualTo(1);
-            assertThat(repository.get(tasks.get(4).getId()).getStatus()).isEqualTo(TaskStatus.QUEUED);
-            assertThat(maxConcurrent.get()).isEqualTo(4);
+            assertThat(repository.get(tasks.get(8).getId()).getStatus()).isEqualTo(TaskStatus.QUEUED);
+            assertThat(maxConcurrent.get()).isEqualTo(8);
         } finally {
             releaseWorkers.countDown();
-            assertThat(fourCompleted.await(5, TimeUnit.SECONDS)).isTrue();
-            assertThat(waitUntilWorkersReleasedLeases(jdbcTemplate)).isTrue();
+            assertThat(eightCompleted.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(waitUntilWorkersReleasedLeases(jdbcTemplate, 8)).isTrue();
             worker.shutdown();
         }
     }
@@ -208,13 +208,13 @@ class TuningQueueWorkerConcurrencyTest {
         }
     }
 
-    private boolean waitUntilWorkersReleasedLeases(JdbcTemplate jdbcTemplate) throws InterruptedException {
+    private boolean waitUntilWorkersReleasedLeases(JdbcTemplate jdbcTemplate, int expectedCount) throws InterruptedException {
         long deadline = System.currentTimeMillis() + 5000L;
         while (System.currentTimeMillis() < deadline) {
             Integer released = jdbcTemplate.queryForObject(
                     "SELECT COUNT(*) FROM tuning_tasks WHERE status = 'RECEIVED' AND lease_owner IS NULL",
                     Integer.class);
-            if (released != null && released == 4) {
+            if (released != null && released == expectedCount) {
                 return true;
             }
             Thread.sleep(25L);

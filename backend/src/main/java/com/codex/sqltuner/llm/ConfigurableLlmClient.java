@@ -39,7 +39,7 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class ConfigurableLlmClient implements LlmClient {
     private static final Logger log = LoggerFactory.getLogger(ConfigurableLlmClient.class);
-    // mock 不占许可；真实模型并发默认与持久化 worker 上限一致（生产为 4）。
+    // mock 不占许可；真实模型并发与持久化 worker 上限保持一致。
     private final int maxConcurrentLlm;
     private final Semaphore llmSlots;
     private final LlmProperties properties;
