@@ -188,7 +188,7 @@ test("workspace renders concise validated advice inline in the conversation", as
                 {
                   kind: "ACTION",
                   title: "可先评估的改动",
-                  body: "- 若调用方不依赖全部列，可验证缩小投影列后的结果集和执行计划差异。",
+                  body: "1. 先核对调用方实际使用的返回列。\n2. 若调用方不依赖全部列，在测试环境验证缩小投影列后的结果集和执行计划差异。",
                   evidenceRefs: ["E_EXPLAIN"]
                 },
                 {
@@ -237,14 +237,20 @@ test("workspace renders concise validated advice inline in the conversation", as
   await expect(page.getByText("已识别证据：")).toBeVisible();
   await expect(page.getByText("执行 21.88 · CPU 41.7% · 平均 2008ms · 返回 1 行 · 表规模约 229 万")).toBeVisible();
   await expect(page.getByText("先确认当前访问路径和索引覆盖情况；在没有计划证据前，不应直接把排序问题归因于索引缺失。")).toBeVisible();
-  await expect(page.getByText("判断依据")).toBeVisible();
+  await expect(page.getByText("问题在哪")).toBeVisible();
   await expect(page.getByText("现有输入可以确认筛选和排序结构。")).toBeVisible();
   await expect(page.getByText("还不能确认实际扫描行数、排序算子或索引命中情况。")).toBeVisible();
+  await expect(page.getByText("现在怎么做")).toBeVisible();
+  await expect(page.getByText("先核对调用方实际使用的返回列。")).toBeVisible();
+  await expect(page.getByText("怎么确认有效")).toBeVisible();
+  await expect(page.getByText("对比改动前后的 EXPLAIN。")).toBeVisible();
+  await expect(page.getByText("暂时不要做")).toBeVisible();
+  await expect(page.getByText("不要在缺少现有索引定义时直接创建重复索引。")).toBeVisible();
   await expect(page.getByText("为什么先验证计划")).toHaveCount(0);
   await expect(page.getByText("验证标准")).toHaveCount(0);
   await expect(page.getByText("上线前注意")).toHaveCount(0);
   await expect(page.getByText("建议改写")).toHaveCount(0);
-  await expect(page.getByText("索引候选")).toBeVisible();
+  await expect(page.getByText("建议验证的索引方案")).toBeVisible();
   await expect(page.getByText(/create index idx_orders_status_created/)).toBeVisible();
   await expect(page.getByText("重点问题")).toHaveCount(0);
   await expect(page.getByText("SELECT * 扩大回表成本")).toHaveCount(0);

@@ -653,6 +653,25 @@ class TuningHarnessServiceTest {
             assertThat(candidate.getDdl()).isEmpty();
             assertThat(candidate.getConfidence()).isEqualTo("MEDIUM");
         });
+        assertThat(saved.getResult().getAnalysisNarrative().getConclusion())
+                .contains("主要瓶颈在 GRP_CUSTOMER 的大范围扫描")
+                .contains("先核对并在测试环境验证")
+                .contains("暂不调整 GRP_CUSTOMER_EX");
+        assertThat(saved.getResult().getAnalysisNarrative().getSections())
+                .extracting("title")
+                .containsExactly("问题在哪", "现在怎么做", "怎么确认有效", "暂时不要做");
+        assertThat(saved.getResult().getAnalysisNarrative().getSections().get(0).getBody())
+                .containsOnlyOnce("以下计划事实来自截图")
+                .doesNotContain("截图显示，待文本 EXPLAIN 确认")
+                .contains("访问范围约 846730 而输出估计值仅 1")
+                .contains("不是当前主要瓶颈");
+        assertThat(saved.getResult().getAnalysisNarrative().getSections().get(1).getBody())
+                .contains("1. 先检查")
+                .contains("2. 若无等价覆盖")
+                .contains("3. 收集统计信息");
+        assertThat(saved.getResult().getAnalysisNarrative().getSections().get(2).getBody())
+                .contains("扫描行数相对截图基线明显下降")
+                .contains("结果集、排序和 ROWNUM 截断语义保持一致");
     }
 
     @Test
@@ -910,26 +929,40 @@ class TuningHarnessServiceTest {
         com.fasterxml.jackson.databind.node.ObjectNode root =
                 (com.fasterxml.jackson.databind.node.ObjectNode) objectMapper.readTree(mockContent());
         root.put("outcome", "ADVICE");
-        root.put("summary", "主要瓶颈位于 GRP_CUSTOMER 的过滤与排序访问路径，应先验证复合索引方向，而不是给内表重复建索引。");
+        root.put("summary", "主要瓶颈位于 GRP_CUSTOMER 的大范围扫描，应先核对并验证过滤加排序复合索引。");
 
         com.fasterxml.jackson.databind.node.ObjectNode narrative = root.with("analysisNarrative");
-        narrative.put("conclusion", "最终结论：优先验证 GRP_CUSTOMER 的过滤加排序复合索引方向；GRP_CUSTOMER_EX 已显示命名索引单行探测，暂不重复建索引。");
+        narrative.put("conclusion", "最终结论：主要瓶颈在 GRP_CUSTOMER 的大范围扫描；先核对并在测试环境验证过滤加排序复合索引，暂不调整 GRP_CUSTOMER_EX 索引和 ROWNUM 位置。");
         com.fasterxml.jackson.databind.node.ArrayNode sections = narrative.putArray("sections");
         com.fasterxml.jackson.databind.node.ObjectNode evidence = sections.addObject();
         evidence.put("kind", "EVIDENCE");
-        evidence.put("title", "依据");
-        evidence.put("body", "- 截图显示，待文本 EXPLAIN 确认：A 侧范围扫描成本占主导\n- 截图显示，待文本 EXPLAIN 确认：B 侧经命名索引进行单行探测\n- 当前平均耗时与大表规模支持优先核验 A 侧访问路径");
+        evidence.put("title", "问题在哪");
+        evidence.put("body", "以下计划事实来自截图，精确算子与数值需由文本 EXPLAIN 复核。\n"
+                + "- 截图中的计划估计值显示，GRP_CUSTOMER 访问范围约 846730 而输出估计值仅 1，两者差距很大（PHY_TABLE_SCAN）\n"
+                + "- GRP_CUSTOMER_EX 已通过 PKX_GRP_CUSTOMER_EX_ID 单行探测，不是当前主要瓶颈\n"
+                + "- 过滤后仍需执行 PHY_SORT，排序路径还有额外成本");
         evidence.putArray("evidenceRefs").add("E_SQL").add("E_PLAN_IMAGE").add("E_STATS").add("E_RUNTIME");
         com.fasterxml.jackson.databind.node.ObjectNode action = sections.addObject();
         action.put("kind", "ACTION");
-        action.put("title", "主建议");
-        action.put("body", "- 以 EC_CODE、BE_ID 等值过滤列为前导，再衔接 CREATE_TIME、CUST_ID 排序列形成条件式索引方向；核对现有索引后再生成最终 DDL");
+        action.put("title", "现在怎么做");
+        action.put("body", "1. 先检查 GRP_CUSTOMER 的现有索引，排除等价或更优前缀\n"
+                + "2. 若无等价覆盖，在测试环境验证 EC_CODE、BE_ID 加 CREATE_TIME、CUST_ID 的过滤排序索引；等值列顺序需按租户键和列基数确认\n"
+                + "3. 收集统计信息，并使用相同绑定值复测执行计划和耗时");
         action.putArray("evidenceRefs").add("E_SQL").add("E_PLAN_IMAGE");
         com.fasterxml.jackson.databind.node.ObjectNode validation = sections.addObject();
         validation.put("kind", "VALIDATION");
-        validation.put("title", "验证信号");
-        validation.put("body", "- A 侧由大范围扫描转为索引范围访问\n- PHY_SORT 消失或由 Top-N 有序访问替代\n- B 侧继续保持命名索引单行探测");
+        validation.put("title", "怎么确认有效");
+        validation.put("body", "- GRP_CUSTOMER 由大范围扫描转为索引范围访问，扫描行数相对截图基线明显下降\n"
+                + "- PHY_SORT 消失或缩小为低成本 Top-N 排序\n"
+                + "- GRP_CUSTOMER_EX 继续保持命名索引单行探测\n"
+                + "- 结果集、排序和 ROWNUM 截断语义保持一致");
         validation.putArray("evidenceRefs").add("E_SQL").add("E_PLAN_IMAGE");
+        com.fasterxml.jackson.databind.node.ObjectNode caution = sections.addObject();
+        caution.put("kind", "CAUTION");
+        caution.put("title", "暂时不要做");
+        caution.put("body", "- 不要为已单行探测的 GRP_CUSTOMER_EX 创建同类重复索引\n"
+                + "- 不要把 ROWNUM 移到内层 ORDER BY 之前，以免改变 Top-N 语义");
+        caution.putArray("evidenceRefs").add("E_SQL").add("E_PLAN_IMAGE");
 
         com.fasterxml.jackson.databind.node.ArrayNode catalog = root.putArray("evidenceCatalog");
         addEvidence(catalog, "E_SQL", "USER_SQL", "用户提供的 SQL", "HIGH");

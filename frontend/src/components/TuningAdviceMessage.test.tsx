@@ -51,7 +51,7 @@ describe("TuningAdviceMessage", () => {
     );
 
     expect(screen.getByText("先确认扫描路径。")).toBeInTheDocument();
-    expect(screen.getByText("判断依据")).toBeInTheDocument();
+    expect(screen.getByText("问题在哪")).toBeInTheDocument();
   });
 
   it("prefers one evidence-gated index DDL over a secondary rewrite", () => {
@@ -99,17 +99,18 @@ describe("TuningAdviceMessage", () => {
     );
 
     expect(screen.getByText("已校验")).toBeInTheDocument();
-    expect(screen.getByText("判断依据")).toBeInTheDocument();
+    expect(screen.getByText("问题在哪")).toBeInTheDocument();
     expect(screen.getByText("SELECT * 扩大回表成本")).toBeInTheDocument();
     expect(screen.getByText("第三个问题")).toBeInTheDocument();
     expect(screen.queryByText("不应默认展示")).not.toBeInTheDocument();
     expect(screen.queryByText("建议改写")).not.toBeInTheDocument();
-    expect(screen.getByText("索引候选")).toBeInTheDocument();
+    expect(screen.getByText("建议验证的索引方案")).toBeInTheDocument();
     expect(screen.getByText("减少排序和扫描")).toBeInTheDocument();
     expect(screen.getByText("写入成本：增加写维护")).toBeInTheDocument();
-    expect(screen.getByText("注意：确认不存在重复索引")).toBeInTheDocument();
+    expect(screen.getByText("前提：确认不存在重复索引")).toBeInTheDocument();
     expect(screen.getByText(/create index idx_orders_status_created/)).toBeInTheDocument();
-    expect(screen.queryByText("验证")).not.toBeInTheDocument();
+    expect(screen.getByText("怎么确认有效")).toBeInTheDocument();
+    expect(screen.getByText("执行 EXPLAIN：确认访问路径")).toBeInTheDocument();
     expect(screen.queryByText("E_EXPLAIN")).not.toBeInTheDocument();
     expect(container).not.toHaveTextContent(/E_(?:SQL|EXPLAIN|SCHEMA|INDEX|RUNTIME)/);
     expect(screen.queryByRole("tab")).not.toBeInTheDocument();
@@ -165,11 +166,12 @@ describe("TuningAdviceMessage", () => {
     );
 
     expect(screen.getByText("需要补充")).toBeInTheDocument();
-    expect(screen.getByText("判断依据")).toBeInTheDocument();
+    expect(screen.getByText("问题在哪")).toBeInTheDocument();
     expect(screen.getByText("只有 SQL 文本，不能确认实际访问路径。")).toBeInTheDocument();
     expect(screen.getByText("请补充：文本 EXPLAIN")).toBeInTheDocument();
     expect(screen.queryByText("当前索引定义")).not.toBeInTheDocument();
-    expect(screen.getByText("注意：不要直接上线索引 DDL")).toBeInTheDocument();
+    expect(screen.getByText("暂时不要做")).toBeInTheDocument();
+    expect(screen.getByText("不要直接上线未验证的索引 DDL。")).toBeInTheDocument();
     expect(screen.queryByText(/create index should_not_render/)).not.toBeInTheDocument();
   });
 
@@ -187,7 +189,7 @@ describe("TuningAdviceMessage", () => {
                 {
                   kind: "EVIDENCE",
                   title: "依据",
-                  body: "- 已知 SQL 包含筛选和排序。[E_SQL]\n- 平均耗时为 2008ms。【E_RUNTIME】\n- 两张表均约 229 万行。（E_STATS）\n- 第四条不应显示。[E_SQL]",
+                  body: "以下计划事实来自截图，精确算子与数值需由文本 EXPLAIN 复核。\n- 已知 SQL 包含筛选和排序。[E_SQL]\n- 平均耗时为 2008ms。【E_RUNTIME】\n- 两张表均约 229 万行。（E_STATS）\n- 第四条不应显示。[E_SQL]",
                   evidenceRefs: ["E_SQL"]
                 },
                 {
@@ -237,18 +239,23 @@ describe("TuningAdviceMessage", () => {
 
     expect(screen.queryByText("最终结论：")).not.toBeInTheDocument();
     expect(screen.getByText("先补齐执行计划，再判断扫描和排序是否真的存在。")).toBeInTheDocument();
-    expect(screen.queryByText("依据")).not.toBeInTheDocument();
+    expect(screen.getByText("问题在哪")).toBeInTheDocument();
     expect(screen.queryByText("建议与前提")).not.toBeInTheDocument();
     expect(screen.queryByText("验证信号")).not.toBeInTheDocument();
     expect(screen.queryByText("不应重复的结论块")).not.toBeInTheDocument();
     expect(screen.queryByText("这段结论不应在顶部结论之后再显示。")).not.toBeInTheDocument();
     expect(screen.getByText(/create index idx_orders_tenant_created/)).toBeInTheDocument();
-    expect(screen.getByText("判断依据")).toBeInTheDocument();
+    expect(screen.getByText("以下计划事实来自截图，精确算子与数值需由文本 EXPLAIN 复核。")).toBeInTheDocument();
     expect(screen.getByText("已知 SQL 包含筛选和排序。")).toBeInTheDocument();
     expect(screen.getByText("平均耗时为 2008ms。")).toBeInTheDocument();
     expect(screen.getByText("两张表均约 229 万行。")).toBeInTheDocument();
     expect(screen.queryByText("第四条不应显示。")).not.toBeInTheDocument();
-    expect(screen.getByText("索引候选")).toBeInTheDocument();
+    expect(screen.getByText("现在怎么做")).toBeInTheDocument();
+    expect(screen.getByText("先补充文本 EXPLAIN 与现有索引，再决定是否需要索引变更。")).toBeInTheDocument();
+    expect(screen.getByText("怎么确认有效")).toBeInTheDocument();
+    expect(screen.getByText("比较访问路径。")).toBeInTheDocument();
+    expect(screen.getByText("比较排序算子。")).toBeInTheDocument();
+    expect(screen.getByText("建议验证的索引方案")).toBeInTheDocument();
     expect(screen.getByText("仅在已验证前提下减少排序")).toBeInTheDocument();
     expect(screen.queryByText("关键问题")).not.toBeInTheDocument();
     expect(screen.queryByText("旧诊断不应重复")).not.toBeInTheDocument();
@@ -298,9 +305,44 @@ describe("TuningAdviceMessage", () => {
     );
 
     expect(screen.queryByText("主建议")).not.toBeInTheDocument();
-    expect(screen.getByText("索引候选")).toBeInTheDocument();
+    expect(screen.getByText("现在怎么做")).toBeInTheDocument();
+    expect(screen.getByText("先核对现有索引，避免创建重复索引。")).toBeInTheDocument();
+    expect(screen.getByText("建议验证的索引方向")).toBeInTheDocument();
     expect(screen.getByText("orders (tenant_id, created_at)")).toBeInTheDocument();
     expect(screen.getByText("确认排序列是否已被现有复合索引覆盖")).toBeInTheDocument();
+  });
+
+  it("labels an advice safety warning as a prohibited action instead of supplemental input", () => {
+    render(
+      <TuningAdviceMessage
+        task={{
+          ...baseTask,
+          result: {
+            outcome: "ADVICE",
+            summary: "先保持 Top-N 语义。",
+            diagnoses: [{ title: "排序后截断必须保留", impact: "提前截断会改变结果" }],
+            rewriteCandidates: [],
+            indexCandidates: [],
+            validationPlan: [],
+            missingInformation: [],
+            safetyWarnings: ["不要把 ROWNUM 移到 ORDER BY 之前。"],
+            findings: [],
+            rewriteSql: "",
+            indexSuggestions: [],
+            validationSteps: [],
+            riskWarnings: [],
+            needMoreInfo: [],
+            rawModelOutput: "",
+            mockModel: false
+          }
+        }}
+      />
+    );
+
+    expect(screen.getByText("暂时不要做")).toBeInTheDocument();
+    expect(screen.getByText("不要把 ROWNUM 移到 ORDER BY 之前。")).toBeInTheDocument();
+    expect(screen.queryByText("建议补充")).not.toBeInTheDocument();
+    expect(screen.queryByText("还需要什么")).not.toBeInTheDocument();
   });
 
   it("streams only task stages while validation is still in progress", () => {

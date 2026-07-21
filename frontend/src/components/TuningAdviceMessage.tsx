@@ -1,6 +1,23 @@
-import { AlertTriangle, CheckCircle2, Copy, ListChecks, Loader2, Sparkles, Wrench } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
 import { useLayoutEffect, useMemo } from "react";
-import type { AnalysisNarrativeSection, Diagnosis, IndexCandidate, ModelStreamUpdate, RewriteCandidate, SqlTuningTask } from "../types/api";
+import type {
+  AnalysisNarrativeSection,
+  Diagnosis,
+  IndexCandidate,
+  ModelStreamUpdate,
+  RewriteCandidate,
+  SqlTuningTask,
+  ValidationStep
+} from "../types/api";
+import {
+  AdviceBasisBlock,
+  MissingAdviceBlock,
+  NarrativeSectionView,
+  RecommendationBlock,
+  ValidationPlanView,
+  WarningAdviceBlock,
+  stripEvidenceIds
+} from "./TuningAdviceContent";
 
 interface TuningAdviceMessageProps {
   task?: SqlTuningTask;
@@ -9,14 +26,12 @@ interface TuningAdviceMessageProps {
 
 type AdviceBlock =
   | { id: "basis"; type: "basis" }
-  | { id: "rewrite"; type: "rewrite"; candidate: RewriteCandidate; compact?: boolean }
-  | { id: "index"; type: "index"; candidate: IndexCandidate; compact?: boolean }
-  | { id: "next"; type: "next" };
-
-interface AdviceBasisItem {
-  title?: string;
-  detail?: string;
-}
+  | { id: string; type: "narrative"; section: AnalysisNarrativeSection }
+  | { id: "rewrite"; type: "rewrite"; candidate: RewriteCandidate }
+  | { id: "index"; type: "index"; candidate: IndexCandidate }
+  | { id: "validation-plan"; type: "validation-plan"; plan: Array<ValidationStep | string> }
+  | { id: "missing"; type: "missing" }
+  | { id: "warning"; type: "warning" };
 
 export function TuningAdviceMessage({ task, onContentChange }: TuningAdviceMessageProps) {
   const advice = useMemo(() => normalizeAdvice(task), [task]);
@@ -92,109 +107,80 @@ function safeStreamingDraft(value?: string) {
   if (/(?:```\s*sql\b|\bsql\s*:|\b(?:select|with|insert|replace|update|delete|merge|create|alter|drop|truncate|rename|grant|revoke|call|exec|execute|begin|declare|explain|analyze|lock|set|commit|rollback)\b)/i.test(normalized)) {
     return "";
   }
-  return normalized
-    .trim();
+  return normalized;
 }
 
 function renderBlock(block: AdviceBlock, advice: ReturnType<typeof normalizeAdvice>) {
   switch (block.type) {
     case "basis":
-      return (
-        <section key={block.id} className="advice-block advice-basis">
-          <h3><ListChecks size={16} />判断依据</h3>
-          <ol>
-            {advice.basis.map((item, index) => (
-              <li key={`${item.title || item.detail}-${index}`}>
-                {item.title && <strong>{item.title}</strong>}
-                {item.detail && <span>{item.detail}</span>}
-              </li>
-            ))}
-          </ol>
-        </section>
-      );
+      return <AdviceBasisBlock key={block.id} items={advice.basis} />;
+    case "narrative":
+      return <NarrativeSectionView key={block.id} section={block.section} />;
     case "rewrite":
-      return <RecommendationBlock key={block.id} type="rewrite" candidate={block.candidate} compact={block.compact} />;
+      return <RecommendationBlock key={block.id} type="rewrite" candidate={block.candidate} />;
     case "index":
-      return <RecommendationBlock key={block.id} type="index" candidate={block.candidate} compact={block.compact} />;
-    case "next":
-      return (
-        <section key={block.id} className={advice.outcome === "NEEDS_INPUT" ? "advice-block advice-next needs-input" : "advice-block advice-next"}>
-          <h3>{advice.outcome === "NEEDS_INPUT" ? "还缺什么" : "建议补充"}</h3>
-          {advice.nextStep && <p>{advice.nextStep}</p>}
-          {advice.warning && <small>注意：{advice.warning}</small>}
-        </section>
-      );
+      return <RecommendationBlock key={block.id} type="index" candidate={block.candidate} />;
+    case "validation-plan":
+      return <ValidationPlanView key={block.id} plan={block.plan} />;
+    case "missing":
+      return <MissingAdviceBlock key={block.id} message={advice.missing} />;
+    case "warning":
+      return <WarningAdviceBlock key={block.id} message={advice.warning} />;
   }
 }
 
 function buildBlocks(advice: ReturnType<typeof normalizeAdvice>): AdviceBlock[] {
   const blocks: AdviceBlock[] = [];
-  if (advice.basis.length > 0) {
+  const sections = advice.narrative?.sections || [];
+  const evidence = firstSection(sections, "EVIDENCE");
+  const action = firstSection(sections, "ACTION");
+  const validation = firstSection(sections, "VALIDATION");
+  const caution = firstSection(sections, "CAUTION");
+
+  if (evidence) {
+    blocks.push({ id: "narrative-evidence", type: "narrative", section: evidence });
+  } else if (advice.basis.length > 0) {
     blocks.push({ id: "basis", type: "basis" });
   }
-  appendRecommendations(blocks, advice);
-  if (advice.outcome === "NEEDS_INPUT" || advice.warning) {
-    blocks.push({ id: "next", type: "next" });
+
+  if (action) {
+    blocks.push({ id: "narrative-action", type: "narrative", section: action });
+  }
+  appendRecommendation(blocks, advice);
+
+  if (validation) {
+    blocks.push({ id: "narrative-validation", type: "narrative", section: validation });
+  } else if (advice.validationPlan.length > 0) {
+    blocks.push({ id: "validation-plan", type: "validation-plan", plan: advice.validationPlan });
+  }
+
+  if (advice.outcome === "NEEDS_INPUT") {
+    blocks.push({ id: "missing", type: "missing" });
+  }
+
+  if (caution) {
+    blocks.push({ id: "narrative-caution", type: "narrative", section: caution });
+  } else if (advice.warning) {
+    blocks.push({ id: "warning", type: "warning" });
   }
   return blocks;
 }
 
-function appendRecommendations(blocks: AdviceBlock[], advice: ReturnType<typeof normalizeAdvice>, compact = false) {
+function appendRecommendation(blocks: AdviceBlock[], advice: ReturnType<typeof normalizeAdvice>) {
   if (advice.outcome !== "ADVICE") {
     return;
   }
   if (advice.index?.ddl?.trim()) {
-    blocks.push({ id: "index", type: "index", candidate: advice.index, compact });
+    blocks.push({ id: "index", type: "index", candidate: advice.index });
     return;
   }
   if (advice.rewrite && (advice.rewrite.sql || advice.rewrite.rewrittenSql)) {
-    blocks.push({ id: "rewrite", type: "rewrite", candidate: advice.rewrite, compact });
+    blocks.push({ id: "rewrite", type: "rewrite", candidate: advice.rewrite });
     return;
   }
-  if (advice.index && (advice.index.ddl || advice.index.benefit || advice.index.columnOrder?.length || advice.index.columns?.length)) {
+  if (advice.index && (advice.index.benefit || advice.index.columnOrder?.length || advice.index.columns?.length)) {
     blocks.push({ id: "index", type: "index", candidate: advice.index });
   }
-}
-
-function RecommendationBlock({ type, candidate, compact = false }: { type: "rewrite" | "index"; candidate: RewriteCandidate | IndexCandidate; compact?: boolean }) {
-  const isIndex = type === "index";
-  const index = candidate as IndexCandidate;
-  const rewrite = candidate as RewriteCandidate;
-  const sql = isIndex ? index.ddl : (rewrite.sql || rewrite.rewrittenSql);
-  const title = isIndex ? "索引候选" : "建议改写";
-  const description = stripEvidenceIds(isIndex ? index.benefit || "" : firstText(rewrite.change, rewrite.changes));
-  const risk = stripEvidenceIds(isIndex ? index.risk || "" : firstText(rewrite.risk, rewrite.risks));
-  const writeCost = stripEvidenceIds(index.writeCost || "");
-  const className = `${isIndex ? "advice-block advice-recommendation advice-index" : "advice-block advice-recommendation advice-rewrite"}${compact ? " compact" : ""}`;
-
-  return (
-    <section className={className}>
-      {!compact && <h3>{isIndex ? <Sparkles size={16} /> : <Wrench size={16} />}{title}</h3>}
-      {isIndex && !compact && <strong className="advice-index-title">{indexTitle(index)}</strong>}
-      {description && !compact && <p>{description}</p>}
-      {sql && <SqlSnippet value={sql} />}
-      {isIndex && writeCost && <small>写入成本：{writeCost}</small>}
-      {risk && <small>注意：{risk}</small>}
-    </section>
-  );
-}
-
-function SqlSnippet({ value }: { value: string }) {
-  async function copy() {
-    if (navigator.clipboard) {
-      await navigator.clipboard.writeText(value);
-    }
-  }
-
-  return (
-    <div className="advice-sql-snippet">
-      <span>sql</span>
-      <button onClick={copy} type="button" aria-label="复制 SQL" title="复制 SQL">
-        <Copy size={15} />
-      </button>
-      <pre>{value}</pre>
-    </div>
-  );
 }
 
 function normalizeAdvice(task?: SqlTuningTask) {
@@ -217,70 +203,41 @@ function normalizeAdvice(task?: SqlTuningTask) {
   })) || [];
   const outcome = result?.outcome || task?.outcome || "ADVICE";
   const missing = result?.missingInformation || result?.needMoreInfo || [];
+  const structuredValidation = result?.validationPlan || [];
+  const legacyValidation = result?.validationSteps || [];
+  const candidateValidation = indexes[0]?.validation || rewrites[0]?.validation || rewrites[0]?.validationSteps?.[0] || "";
+  const validationPlan: Array<ValidationStep | string> = structuredValidation.length > 0
+    ? structuredValidation
+    : legacyValidation.length > 0
+      ? legacyValidation
+      : candidateValidation ? [candidateValidation] : [];
   const firstMissing = stripEvidenceIds(missing[0] || "");
-  const narrativeBasis = extractNarrativeBasis(result?.analysisNarrative?.sections || []);
+
   return {
     outcome,
     narrative: result?.analysisNarrative,
     summary: result?.summary || (task?.status === "FAILED" ? "任务失败，请检查输入或稍后重试。" : "本轮分析已完成。"),
-    diagnoses,
-    basis: narrativeBasis.length > 0 ? narrativeBasis : diagnosisBasis(diagnoses),
+    basis: diagnosisBasis(diagnoses),
     rewrite: rewrites[0],
     index: indexes[0],
-    nextStep: outcome === "NEEDS_INPUT"
-      ? firstMissing ? `请补充：${firstMissing}` : "请补充可验证的执行计划或表结构信息。"
-      : "",
+    validationPlan,
+    missing: firstMissing ? `请补充：${firstMissing}` : "请补充会改变下一步动作的结构或执行计划信息。",
     warning: stripEvidenceIds((result?.safetyWarnings || result?.riskWarnings || [])[0] || "")
   };
+}
+
+function firstSection(sections: AnalysisNarrativeSection[], kind: string) {
+  return sections.find((section) => section.kind?.toUpperCase() === kind);
 }
 
 function stripConclusionPrefix(value: string) {
   return stripEvidenceIds(value).replace(/^(?:最终结论|结论)\s*[：:]\s*/, "");
 }
 
-function extractNarrativeBasis(sections: AnalysisNarrativeSection[]): AdviceBasisItem[] {
-  const items: AdviceBasisItem[] = [];
-  for (const section of sections) {
-    if (section.kind?.toUpperCase() !== "EVIDENCE") {
-      continue;
-    }
-    const lines = stripEvidenceIds(section.body || "")
-      .split(/\r?\n/)
-      .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)、])\s*/, "").trim())
-      .filter(Boolean);
-    for (const line of lines) {
-      items.push({ detail: line });
-      if (items.length === 3) {
-        return items;
-      }
-    }
-  }
-  return items;
-}
-
-function diagnosisBasis(diagnoses: Diagnosis[]): AdviceBasisItem[] {
+function diagnosisBasis(diagnoses: Diagnosis[]) {
   return diagnoses.slice(0, 3).map((diagnosis) => {
     const title = stripEvidenceIds(diagnosis.title || "SQL 诊断");
     const detail = stripEvidenceIds(diagnosis.impact || "");
     return { title, detail: detail && detail !== title ? detail : undefined };
   });
-}
-
-function stripEvidenceIds(value: string) {
-  return value
-    .replace(/[\[（(【]\s*E_[A-Z0-9_]+\s*[\]）)】]/gi, "")
-    .replace(/\bE_[A-Z0-9_]+\b/gi, "")
-    .replace(/[ \t]+([，。；：,.!?])/g, "$1")
-    .replace(/[ \t]{2,}/g, " ")
-    .trim();
-}
-
-function firstText(primary?: string, legacy?: string[]) {
-  return primary || legacy?.[0] || "";
-}
-
-function indexTitle(index: IndexCandidate) {
-  const table = stripEvidenceIds(index.tableName || index.table || "目标表") || "目标表";
-  const columns = (index.columnOrder || index.columns || []).map(stripEvidenceIds).filter(Boolean);
-  return columns.length > 0 ? `${table} (${columns.join(", ")})` : table;
 }
