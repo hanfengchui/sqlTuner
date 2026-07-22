@@ -420,6 +420,44 @@ class StrictResultValidatorSemanticTest {
     }
 
     @Test
+    void acceptsEachPlanEstimateWhenMultipleQualifiedCountsShareOneClause() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        Diagnosis diagnosis = new Diagnosis();
+        diagnosis.setSeverity("HIGH");
+        diagnosis.setTitle("主表扫描范围过大");
+        diagnosis.setImpact("计划对 A 做 PHY_TABLE_SCAN，计划估计扫描约 16 万行、计划估计输出约 1 万行更新候选，读成本集中在主表。");
+        diagnosis.setConfidence("MEDIUM");
+        diagnosis.setPrecondition("文本执行计划显示主表全表扫描。");
+        diagnosis.setEvidenceRefs(Collections.singletonList("E1"));
+        result.setDiagnoses(Collections.singletonList(diagnosis));
+
+        ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isTrue();
+    }
+
+    @Test
+    void acceptsPlanEstimateAfterAnUnrelatedTableStatisticInTheSameClause() {
+        String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 10";
+        SqlStatementProfile profile = parser.parse(sql, SqlDialect.OB_MYSQL);
+        TuningResult result = validResult(sql);
+        Diagnosis diagnosis = new Diagnosis();
+        diagnosis.setSeverity("INFO");
+        diagnosis.setTitle("配置表扫描成本次要");
+        diagnosis.setImpact("配置表表统计约 1212 行，计划估计全表扫描并分组后约 15 行参与 HASH JOIN，相对主表扫描不是优先优化点。");
+        diagnosis.setConfidence("MEDIUM");
+        diagnosis.setPrecondition("执行计划显示配置表全表扫描后分组。");
+        diagnosis.setEvidenceRefs(Collections.singletonList("E1"));
+        result.setDiagnoses(Collections.singletonList(diagnosis));
+
+        ValidationOutcome outcome = validator.validate(result, context(), profile, SqlDialect.OB_MYSQL);
+
+        assertThat(outcome.isValid()).isTrue();
+    }
+
+    @Test
     void acceptsSqlRowLimitAsAnUpperBoundRatherThanActualRuntimeCount() {
         String sql = "SELECT * FROM orders WHERE tenant_id = 1 ORDER BY created_at DESC LIMIT 100";
         String[] claims = {

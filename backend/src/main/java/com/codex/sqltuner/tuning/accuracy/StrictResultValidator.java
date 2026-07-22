@@ -521,12 +521,46 @@ public class StrictResultValidator {
             int distance = distanceBetween(
                     qualifierMatcher.start(), qualifierMatcher.end(), current.start, current.end);
             if (distance <= 32
-                    && nearestMentionIndex(mentions, clauseStart, clauseEnd,
-                    qualifierMatcher.start(), qualifierMatcher.end()) == mentionIndex) {
+                    && (nearestMentionIndex(mentions, clauseStart, clauseEnd,
+                    qualifierMatcher.start(), qualifierMatcher.end()) == mentionIndex
+                    || noRowCountMentionBetween(mentions, current,
+                    qualifierMatcher.start(), qualifierMatcher.end()))) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * A table statistic can precede a separately qualified plan estimate in one sentence.
+     * In that form the statistic is closer to the qualifier than the scan/output count, but
+     * it does not describe the later count. Do not let that unrelated reference defeat the
+     * explicit "plan estimate" qualifier.
+     */
+    private boolean noRowCountMentionBetween(List<RowCountMention> mentions,
+                                             RowCountMention current,
+                                             int qualifierStart,
+                                             int qualifierEnd) {
+        int start;
+        int end;
+        if (qualifierEnd <= current.start) {
+            start = qualifierEnd;
+            end = current.start;
+        } else if (current.end <= qualifierStart) {
+            start = current.end;
+            end = qualifierStart;
+        } else {
+            return true;
+        }
+        for (RowCountMention mention : mentions) {
+            if (mention == current) {
+                continue;
+            }
+            if (mention.start >= start && mention.end <= end) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private boolean isNegatedQualifier(String value,
