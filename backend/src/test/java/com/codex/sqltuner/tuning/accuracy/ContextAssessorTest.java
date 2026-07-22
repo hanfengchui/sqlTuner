@@ -62,4 +62,21 @@ class ContextAssessorTest {
         assertThat(context.isAllowRewrite()).isFalse();
         assertThat(context.isAllowIndexDirection()).isFalse();
     }
+
+    @Test
+    void treatsSqlIdAsMetadataRatherThanRuntimeEvidence() {
+        String sql = "SELECT id FROM orders WHERE tenant_id = ?";
+        SqlTuningTask task = new SqlTuningTask();
+        task.setRuntimeMetricsText("SQL ID: AD051FC4E9D92F153DA7EE852B4084CE");
+
+        ContextPackage context = assessor.assess(
+                task,
+                parser.parse(sql, SqlDialect.OB_MYSQL),
+                Collections.emptyList());
+
+        assertThat(context.getRuntimeMetricsText()).isEmpty();
+        assertThat(context.getAssessment().getAvailableEvidence()).doesNotContain("E_RUNTIME");
+        assertThat(context.getAssessment().getMissingInformation())
+                .anyMatch(value -> value.contains("运行指标"));
+    }
 }

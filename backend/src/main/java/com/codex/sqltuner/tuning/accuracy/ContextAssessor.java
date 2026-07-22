@@ -60,6 +60,8 @@ public class ContextAssessor {
         if (hasText(trustedRuntimeMetrics)) {
             addEvidence(context, "E_RUNTIME", "USER_RUNTIME", "用户提供运行指标，长度 " + trustedRuntimeMetrics.length(), "MEDIUM");
             assessment.getAvailableEvidence().add("E_RUNTIME");
+        } else {
+            assessment.getMissingInformation().add("执行次数、平均耗时、逻辑读、物理读等运行指标");
         }
         if (containsUnverifiedReportMetric(task.getRuntimeMetricsText())) {
             assessment.getPolicyNotes().add("报告根因或既有建议中识别出的指标仅用于界面回执和待核验背景，未计入 E_RUNTIME");
@@ -157,7 +159,9 @@ public class ContextAssessor {
         }
         StringBuilder trusted = new StringBuilder();
         for (String line : value.split("\\r?\\n")) {
-            if (!line.contains(ReportTextParser.UNVERIFIED_REPORT_METRIC_MARKER) && hasText(line)) {
+            if (!line.contains(ReportTextParser.UNVERIFIED_REPORT_METRIC_MARKER)
+                    && !isSqlIdMetadata(line)
+                    && hasText(line)) {
                 if (trusted.length() > 0) {
                     trusted.append('\n');
                 }
@@ -165,6 +169,10 @@ public class ContextAssessor {
             }
         }
         return trusted.toString();
+    }
+
+    private boolean isSqlIdMetadata(String line) {
+        return line != null && line.matches("(?i)^\\s*SQL\\s*ID\\s*[:：].*$");
     }
 
     private boolean containsUnverifiedReportMetric(String value) {
