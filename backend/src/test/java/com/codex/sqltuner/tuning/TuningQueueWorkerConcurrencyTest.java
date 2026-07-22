@@ -156,6 +156,32 @@ class TuningQueueWorkerConcurrencyTest {
     }
 
     @Test
+    void stackOverflowFailureDoesNotLeaveTaskInReceivedState() throws Exception {
+        JdbcTemplate jdbcTemplate = JdbcTestSupport.jdbcTemplate();
+        QueueProperties queueProperties = new QueueProperties();
+        queueProperties.setWorkerCount(1);
+        queueProperties.setMaxRunning(1);
+        TuningTaskRepository repository = repository(jdbcTemplate, queueProperties);
+        SqlTuningTask task = createQueuedTasks(jdbcTemplate, repository, 1).get(0);
+        TuningHarnessService harnessService = mock(TuningHarnessService.class);
+        doThrow(new StackOverflowError("oracle ast visitor recursion"))
+                .when(harnessService).run(any(SqlTuningTask.class));
+
+        TuningQueueWorker worker = new TuningQueueWorker(repository, harnessService, new TaskEventBroker(), queueProperties);
+        try {
+            worker.dispatch();
+            SqlTuningTask failed = waitForTerminal(repository, task.getId());
+
+            assertThat(failed.getStatus()).isEqualTo(TaskStatus.FAILED);
+            assertThat(failed.getLeaseOwner()).isNull();
+            assertThat(failed.getLeaseUntil()).isNull();
+            assertThat(failed.getLastErrorCode()).isEqualTo("TASK_FAILED");
+        } finally {
+            worker.shutdown();
+        }
+    }
+
+    @Test
     void jsonParseFailureContainingNetworkTextIsNotRetried() throws Exception {
         JdbcTemplate jdbcTemplate = JdbcTestSupport.jdbcTemplate();
         QueueProperties queueProperties = new QueueProperties();

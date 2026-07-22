@@ -6,7 +6,9 @@ import org.springframework.stereotype.Component;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -20,6 +22,8 @@ public class ReportTextParser {
     private static final Pattern EXECUTIONS_LABEL = Pattern.compile("(?<!\\S)执行次数\\s*[:：]\\s*");
     private static final Pattern CPU_LABEL = Pattern.compile("(?i)(?<!\\S)CPU\\s*占比\\s*[:：]\\s*");
     private static final Pattern DURATION_LABEL = Pattern.compile("(?<!\\S)平均耗时\\s*[:：]\\s*");
+    private static final Pattern RUNTIME_METRICS_LABEL = Pattern.compile(
+            "(?im)^[\\t ]*(?:运行(?:性能)?指标|性能指标|监控指标|RUNTIME[\\t ]+METRICS?)[\\t ]*(?:[:：][\\t ]*|(?:\\r?\\n|$))");
     private static final Pattern AVERAGE_ROWS_FIELD = Pattern.compile(
             "(?im)^[\\t ]*(?:平均返回行数|(?:AVG(?:ERAGE)?[\\t ]+)?ROWS?[\\t ]+RETURNED)"
                     + "[\\t ]*(?:[:：=][\\t ]*)?(?:仅|约|为)?[\\t ]*(?=[0-9])");
@@ -53,6 +57,10 @@ public class ReportTextParser {
             "(?im)^[\\t ]*(?:(?:OCEANBASE|OB)[\\t ]*)?(?:数据库[\\t ]*)?(?:版本|VERSION)[\\t ]*[:：][\\t ]*([^\\r\\n]+)");
     private static final Pattern OB_VERSION_INLINE = Pattern.compile(
             "(?i)\\b(?:OCEANBASE|OB)[\\t ]*(?:(?:CE|EE)[\\t ]*)?(?:VERSION[\\t ]*)?[vV]?([0-9]+(?:\\.[0-9]+){1,5}(?:[-_][A-Za-z0-9.]+)?)");
+    private static final Pattern BUSINESS_INVARIANTS_LABEL = Pattern.compile(
+            "(?im)^[\\t ]*(?:业务(?:语义)?约束|业务规则|语义约束|BUSINESS[\\t ]+(?:INVARIANTS?|RULES?))[\\t ]*(?:[:：][\\t ]*|(?:\\r?\\n|$))");
+    private static final Pattern ALLOWED_ACTIONS_LABEL = Pattern.compile(
+            "(?im)^[\\t ]*(?:允许(?:的)?(?:建议|操作)(?:类型)?|调优范围|ALLOWED[\\t ]+ACTIONS?)[\\t ]*(?:[:：][\\t ]*|(?:\\r?\\n|$))");
 
     private static final Pattern SQL_START = Pattern.compile("(?is)^\\s*(?:SELECT|WITH|INSERT|UPDATE|DELETE)\\b");
     private static final Pattern ORACLE_DIALECT = Pattern.compile("(?is)(?:\\bROWNUM\\b|\\bFETCH\\s+FIRST\\b|\"[^\"\\r\\n]+\")");
@@ -76,21 +84,21 @@ public class ReportTextParser {
                     + "\\bUSING\\s+(?:WHERE|FILESORT|TEMPORARY|INDEX(?:\\s+CONDITION)?)\\b)");
 
     private static final List<Pattern> SQL_END_LABELS = Arrays.asList(
-            EXECUTIONS_LABEL, CPU_LABEL, DURATION_LABEL, AVERAGE_ROWS_FIELD, LOGICAL_READS_FIELD,
+            RUNTIME_METRICS_LABEL, EXECUTIONS_LABEL, CPU_LABEL, DURATION_LABEL, AVERAGE_ROWS_FIELD, LOGICAL_READS_FIELD,
             PHYSICAL_READS_FIELD, ROOT_CAUSE_LABEL,
             THROTTLE_LABEL, ADVICE_LABEL, PLAN_LABEL, SCHEMA_LABEL, INDEX_LABEL,
-            TABLE_STATS_LABEL, OB_VERSION_LABEL);
+            TABLE_STATS_LABEL, OB_VERSION_LABEL, BUSINESS_INVARIANTS_LABEL, ALLOWED_ACTIONS_LABEL);
     private static final List<Pattern> SECTION_END_LABELS = Arrays.asList(
-            SQL_LABEL, EXECUTIONS_LABEL, CPU_LABEL, DURATION_LABEL, ROOT_CAUSE_LABEL,
+            SQL_LABEL, RUNTIME_METRICS_LABEL, EXECUTIONS_LABEL, CPU_LABEL, DURATION_LABEL, ROOT_CAUSE_LABEL,
             THROTTLE_LABEL, ADVICE_LABEL, PLAN_LABEL, SCHEMA_LABEL, INDEX_LABEL,
-            TABLE_STATS_LABEL, OB_VERSION_LABEL);
+            TABLE_STATS_LABEL, OB_VERSION_LABEL, BUSINESS_INVARIANTS_LABEL, ALLOWED_ACTIONS_LABEL);
 
     public ParsedReport parse(String input) {
         String text = validatedText(input);
         if (looksLikeSql(text)) {
             List<String> warnings = new ArrayList<String>();
             warnings.add("未识别到报告字段，已按纯 SQL 处理；请补充运行指标和文本 EXPLAIN。");
-            return new ParsedReport(text.trim(), inferDialect(text), "", "", "", "", "", "", "", warnings);
+            return new ParsedReport(text.trim(), inferDialect(text), "", "", "", "", "", "", "", "", Collections.<String>emptyList(), warnings);
         }
 
         Matcher sqlLabel = SQL_LABEL.matcher(text);
@@ -117,6 +125,8 @@ public class ReportTextParser {
                 evidence.schemaText,
                 evidence.indexText,
                 evidence.obVersion,
+                extractBusinessInvariants(text),
+                extractAllowedActions(text),
                 warnings);
     }
 
@@ -139,6 +149,8 @@ public class ReportTextParser {
                 evidence.schemaText,
                 evidence.indexText,
                 evidence.obVersion,
+                extractBusinessInvariants(text),
+                extractAllowedActions(text),
                 warnings);
     }
 
@@ -151,25 +163,27 @@ public class ReportTextParser {
         MetricValue executions = extractLabeledMetric(reportMetricText, trustedMetricText, EXECUTIONS_LABEL, Arrays.asList(
                 CPU_LABEL, DURATION_LABEL, AVERAGE_ROWS_FIELD, LOGICAL_READS_FIELD, PHYSICAL_READS_FIELD,
                 ROOT_CAUSE_LABEL, THROTTLE_LABEL, ADVICE_LABEL, PLAN_LABEL,
-                SCHEMA_LABEL, INDEX_LABEL, TABLE_STATS_LABEL, OB_VERSION_LABEL));
+                SCHEMA_LABEL, INDEX_LABEL, TABLE_STATS_LABEL, OB_VERSION_LABEL, BUSINESS_INVARIANTS_LABEL, ALLOWED_ACTIONS_LABEL));
         MetricValue cpu = extractLabeledMetric(reportMetricText, trustedMetricText, CPU_LABEL, Arrays.asList(
                 DURATION_LABEL, AVERAGE_ROWS_FIELD, LOGICAL_READS_FIELD, PHYSICAL_READS_FIELD,
                 ROOT_CAUSE_LABEL, THROTTLE_LABEL, ADVICE_LABEL, PLAN_LABEL,
-                SCHEMA_LABEL, INDEX_LABEL, TABLE_STATS_LABEL, OB_VERSION_LABEL));
+                SCHEMA_LABEL, INDEX_LABEL, TABLE_STATS_LABEL, OB_VERSION_LABEL, BUSINESS_INVARIANTS_LABEL, ALLOWED_ACTIONS_LABEL));
         MetricValue duration = extractLabeledMetric(reportMetricText, trustedMetricText, DURATION_LABEL, Arrays.asList(
                 AVERAGE_ROWS_FIELD, LOGICAL_READS_FIELD, PHYSICAL_READS_FIELD, ROOT_CAUSE_LABEL,
                 THROTTLE_LABEL, ADVICE_LABEL, PLAN_LABEL,
-                SCHEMA_LABEL, INDEX_LABEL, TABLE_STATS_LABEL, OB_VERSION_LABEL));
+                SCHEMA_LABEL, INDEX_LABEL, TABLE_STATS_LABEL, OB_VERSION_LABEL, BUSINESS_INVARIANTS_LABEL, ALLOWED_ACTIONS_LABEL));
         MetricValue averageRows = extractMetricValue(reportMetricText, trustedMetricText, AVERAGE_ROWS_VALUE, "行");
         MetricValue logicalReads = extractMetricValue(reportMetricText, trustedMetricText, LOGICAL_READS_VALUE, "");
         MetricValue physicalReads = extractMetricValue(reportMetricText, trustedMetricText, PHYSICAL_READS_VALUE, "");
         String rootCause = extractValue(text, ROOT_CAUSE_LABEL, Arrays.asList(
                 THROTTLE_LABEL, ADVICE_LABEL, PLAN_LABEL, SCHEMA_LABEL, INDEX_LABEL,
-                TABLE_STATS_LABEL, OB_VERSION_LABEL));
+                TABLE_STATS_LABEL, OB_VERSION_LABEL, BUSINESS_INVARIANTS_LABEL, ALLOWED_ACTIONS_LABEL));
         MetricValue throttle = extractLabeledMetric(reportMetricText, trustedMetricText, THROTTLE_LABEL, Arrays.asList(
-                ADVICE_LABEL, PLAN_LABEL, SCHEMA_LABEL, INDEX_LABEL, TABLE_STATS_LABEL, OB_VERSION_LABEL));
+                ADVICE_LABEL, PLAN_LABEL, SCHEMA_LABEL, INDEX_LABEL, TABLE_STATS_LABEL, OB_VERSION_LABEL,
+                BUSINESS_INVARIANTS_LABEL, ALLOWED_ACTIONS_LABEL));
         String advice = extractValue(text, ADVICE_LABEL, Arrays.asList(
-                PLAN_LABEL, SCHEMA_LABEL, INDEX_LABEL, TABLE_STATS_LABEL, OB_VERSION_LABEL));
+                PLAN_LABEL, SCHEMA_LABEL, INDEX_LABEL, TABLE_STATS_LABEL, OB_VERSION_LABEL,
+                BUSINESS_INVARIANTS_LABEL, ALLOWED_ACTIONS_LABEL));
 
         String priorAnalysis = buildPriorAnalysis(rootCause, advice, warnings);
         PlanExtraction plan = extractPlan(text, warnings, warnWhenPlanMissing);
@@ -377,6 +391,65 @@ public class ReportTextParser {
         return "";
     }
 
+    private static String extractBusinessInvariants(String text) {
+        return extractLabeledSection(text, BUSINESS_INVARIANTS_LABEL);
+    }
+
+    private static List<String> extractAllowedActions(String text) {
+        String section = extractLabeledSection(text, ALLOWED_ACTIONS_LABEL);
+        if (!hasText(section)) {
+            return Collections.emptyList();
+        }
+        List<String> actions = new ArrayList<String>();
+        for (String rawToken : section.split("[,，、;；\\s]+")) {
+            String token = rawToken.replaceAll("^[*\\-]+", "").trim().toLowerCase(Locale.ROOT);
+            if (token.isEmpty()) {
+                continue;
+            }
+            String action = normalizedAllowedAction(token);
+            if (action == null) {
+                throw new IllegalArgumentException("允许建议类型包含不支持的值: " + rawToken);
+            }
+            if ("all".equals(action)) {
+                addAllowedAction(actions, "diagnosis");
+                addAllowedAction(actions, "index");
+                addAllowedAction(actions, "rewrite");
+                addAllowedAction(actions, "validation");
+                continue;
+            }
+            addAllowedAction(actions, action);
+        }
+        if (actions.isEmpty()) {
+            throw new IllegalArgumentException("允许建议类型不能为空");
+        }
+        return actions;
+    }
+
+    private static void addAllowedAction(List<String> actions, String action) {
+        if (!actions.contains(action)) {
+            actions.add(action);
+        }
+    }
+
+    private static String normalizedAllowedAction(String token) {
+        if ("全部".equals(token) || "all".equals(token)) {
+            return "all";
+        }
+        if ("诊断".equals(token) || "diagnosis".equals(token)) {
+            return "diagnosis";
+        }
+        if ("索引".equals(token) || "index".equals(token)) {
+            return "index";
+        }
+        if ("改写".equals(token) || "rewrite".equals(token)) {
+            return "rewrite";
+        }
+        if ("验证".equals(token) || "validation".equals(token)) {
+            return "validation";
+        }
+        return null;
+    }
+
     private static String extractLabeledSection(String text, Pattern label) {
         Matcher matcher = label.matcher(text);
         if (!matcher.find()) {
@@ -387,7 +460,8 @@ public class ReportTextParser {
     }
 
     private static String directEvidencePrefix(String text) {
-        int end = firstLabelStart(text, 0, Arrays.asList(ROOT_CAUSE_LABEL, ADVICE_LABEL));
+        int end = firstLabelStart(text, 0, Arrays.asList(
+                ROOT_CAUSE_LABEL, ADVICE_LABEL, BUSINESS_INVARIANTS_LABEL, ALLOWED_ACTIONS_LABEL));
         return text.substring(0, end);
     }
 

@@ -29,4 +29,21 @@ class SqlSanitizerTest {
         assertThat(result.getSanitizedSql()).contains("__IN_LIST_3__");
         assertThat(result.getSanitizedSql()).doesNotContain("%abc", "2026-07-01", "'A'", "'B'", "'C'");
     }
+
+    @Test
+    void fallsBackWhenOracleUpdateAstTraversalRecurses() {
+        SqlSanitizer sanitizer = new SqlSanitizer();
+        String sql = "UPDATE \"JYZX1\".\"OPENAPI_FQLS_SALE_SYNC_MID\" \"A\" "
+                + "SET \"A\".\"F_SYNC_STATUS\" = ("
+                + "SELECT NVL(MAX(\"SC\".\"F_SWITCH\"), ?) "
+                + "FROM \"JYZX1\".\"TB_ZDGS_SYNC_CONFIG\" \"SC\" "
+                + "WHERE \"A\".\"F_PROV_NUM\" = \"SC\".\"F_PROV_NUM\" "
+                + "AND \"SC\".\"F_BIZ_TYPE\" = ?) "
+                + "WHERE \"A\".\"F_STATUS\" = ? AND \"A\".\"F_IS_ZDGS\" = ?;";
+
+        SanitizedSql result = sanitizer.sanitize(sql, SqlDialect.OB_ORACLE);
+
+        assertThat(result.getSanitizedSql()).contains("UPDATE", "F_SYNC_STATUS", "F_BIZ_TYPE");
+        assertThat(result.getSqlHash()).isNotBlank();
+    }
 }

@@ -82,8 +82,11 @@ public class TuningQueueWorker {
                             taskRepository.releaseLease(saved);
                             eventBroker.publish(taskRepository.get(task.getId()));
                         }
-                    } catch (Exception e) {
-                        handleFailure(task, e);
+                    } catch (Exception error) {
+                        handleFailure(task, error);
+                    } catch (StackOverflowError error) {
+                        // 第三方 AST 遍历可触发此类错误；必须落为终态，不能让租约永久续期。
+                        handleFailure(task, error);
                     } finally {
                         permits.release();
                     }
@@ -106,12 +109,12 @@ public class TuningQueueWorker {
         }
     }
 
-    private void handleFailure(SqlTuningTask task, Exception e) {
+    private void handleFailure(SqlTuningTask task, Throwable error) {
         // 异常消息可能包含模型原文或用户 SQL；日志只记录类型和任务 ID。
-        log.error("runQueuedTask taskId: {} errorType: {}", task.getId(), e.getClass().getSimpleName());
+        log.error("runQueuedTask taskId: {} errorType: {}", task.getId(), error.getClass().getSimpleName());
         SqlTuningTask saved = taskRepository.get(task.getId());
-        boolean retry = saved.getAttemptCount() < 3 && isRetryable(e);
-        String detail = safeFailureDetail(e);
+        boolean retry = saved.getAttemptCount() < 3 && isRetryable(error);
+        String detail = safeFailureDetail(error);
         SqlTuningTask updated = taskRepository.markAfterFailure(
                 task.getId(),
                 retry ? TaskStatus.QUEUED : TaskStatus.FAILED,
@@ -121,7 +124,7 @@ public class TuningQueueWorker {
         eventBroker.publish(updated);
     }
 
-    private String safeFailureDetail(Exception error) {
+    private String safeFailureDetail(Throwable error) {
         if (error == null) {
             return "未知错误";
         }
@@ -134,8 +137,8 @@ public class TuningQueueWorker {
         return normalized.length() <= 400 ? normalized : normalized.substring(0, 400) + "...";
     }
 
-    private boolean isRetryable(Exception e) {
-        Throwable current = e;
+    private boolean isRetryable(Throwable error) {
+        Throwable current = error;
         while (current != null) {
             // JSON 解析异常继承 IOException，但属于确定性格式失败，绝不能按网络错误重跑整条任务。
             if (current instanceof com.fasterxml.jackson.core.JsonProcessingException) {

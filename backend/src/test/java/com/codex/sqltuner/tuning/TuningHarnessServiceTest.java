@@ -834,7 +834,10 @@ class TuningHarnessServiceTest {
                 + "| ID | OPERATOR | NAME | EST. ROWS |\n"
                 + "| 0 | TABLE FULL SCAN | orders | 2300000 |\n"
                 + "表统计:\n"
-                + "orders: 2300000 行\n");
+                + "orders: 2300000 行\n"
+                + "业务语义约束:\n"
+                + "- 结果必须保持 created_at 倒序，不能跨租户读取。\n"
+                + "允许建议类型: 诊断、索引、验证\n");
         request.setDeepAnalysis(Boolean.FALSE);
 
         SqlTuningTask task = service.createTask(1L, request);
@@ -846,6 +849,8 @@ class TuningHarnessServiceTest {
         assertThat(task.getExplainText()).contains("TABLE FULL SCAN");
         assertThat(task.getTableStatsText()).contains("2300000");
         assertThat(task.getObVersion()).isEqualTo("4.3.2.1");
+        assertThat(task.getBusinessInvariants()).contains("created_at 倒序", "不能跨租户读取");
+        assertThat(task.getAllowedActions()).containsExactly("diagnosis", "index", "validation");
     }
 
     private TuningHarnessService service() {

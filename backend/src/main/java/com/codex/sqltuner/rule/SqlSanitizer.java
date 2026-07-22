@@ -50,6 +50,9 @@ public class SqlSanitizer {
             }
         } catch (RuntimeException ignored) {
             // 输入校验会单独报告解析错误；这里保留结构化正则兜底，避免脱敏失败泄露字面量。
+        } catch (StackOverflowError ignored) {
+            // Druid 1.2.28 的 Oracle UPDATE AST 在特定带别名的 SET 结构上会递归溢出。
+            // 脱敏不能让调优任务卡死，因此退回到保守的正则掩码。
         }
         return sanitizeWithPatterns(sql);
     }

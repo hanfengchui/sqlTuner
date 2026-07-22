@@ -120,6 +120,53 @@ class ReportTextParserTest {
     }
 
     @Test
+    void parsesTheCopyPasteTemplateIncludingBusinessConstraintsAndAllowedActions() {
+        String report = "数据库方言: OceanBase Oracle\n"
+                + "SQL ID: AD051FC4E9D92F153DA7EE852B4084CE\n"
+                + "SQL:\n"
+                + "UPDATE OPENAPI_FQLS_SALE_SYNC_MID A\n"
+                + "SET F_SYNC_STATUS = ?\n"
+                + "WHERE A.F_STATUS = ? AND A.F_IS_ZDGS = ?;\n"
+                + "运行指标:\n"
+                + "执行次数: 21\n"
+                + "平均耗时: 2008ms\n"
+                + "平均返回行数: 10582\n"
+                + "逻辑读: 2400000\n"
+                + "物理读: 18300\n"
+                + "OceanBase 版本: 4.3.5.1\n"
+                + "表统计:\n"
+                + "OPENAPI_FQLS_SALE_SYNC_MID: 122880 行\n"
+                + "筛选条件实际命中: 10582 行\n"
+                + "表结构:\n"
+                + "CREATE TABLE OPENAPI_FQLS_SALE_SYNC_MID (F_STATUS NUMBER(1), F_IS_ZDGS NUMBER(1), F_PROV_NUM VARCHAR2(21));\n"
+                + "现有索引:\n"
+                + "无（已核实：无主键、唯一约束和二级索引）\n"
+                + "执行计划:\n"
+                + "| ID | OPERATOR | NAME | EST. ROWS | COST |\n"
+                + "| 0 | PHY_TABLE_SCAN | A | 10582 | 65821 |\n"
+                + "业务语义约束:\n"
+                + "- 只允许更新 F_SYNC_STATUS，不能改变筛选条件或更新范围。\n"
+                + "- 空配置时必须保留默认值 8。\n"
+                + "允许建议类型: 诊断、索引、验证";
+
+        ParsedReport result = parser.parse(report);
+
+        assertThat(result.getExtractedSql())
+                .contains("UPDATE OPENAPI_FQLS_SALE_SYNC_MID A", "SET F_SYNC_STATUS = ?", "WHERE A.F_STATUS = ? AND A.F_IS_ZDGS = ?;")
+                .doesNotContain("运行指标", "业务语义约束");
+        assertThat(result.getRuntimeMetricsText()).contains("执行次数: 21", "平均耗时: 2008ms", "逻辑读: 2400000");
+        assertThat(result.getTableStatsText()).contains("122880 行", "筛选条件实际命中: 10582 行");
+        assertThat(result.getIndexText()).isEqualTo("无（已核实：无主键、唯一约束和二级索引）");
+        assertThat(result.getExplainText()).contains("PHY_TABLE_SCAN", "65821");
+        assertThat(result.getBusinessInvariants()).contains("只允许更新 F_SYNC_STATUS", "空配置时必须保留默认值 8");
+        assertThat(result.getAllowedActions()).containsExactly("diagnosis", "index", "validation");
+
+        ParsedReport allActions = parser.parse("SQL: SELECT id FROM orders WHERE tenant_id = ?\n"
+                + "允许建议类型: 全部");
+        assertThat(allActions.getAllowedActions()).containsExactly("diagnosis", "index", "rewrite", "validation");
+    }
+
+    @Test
     void keepsARealTextExecutionPlan() {
         String report = "SQL: SELECT o.id FROM orders o WHERE o.customer_id = ?\n"
                 + "执行次数: 20\n"

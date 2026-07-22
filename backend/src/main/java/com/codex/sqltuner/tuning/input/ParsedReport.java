@@ -14,6 +14,8 @@ public final class ParsedReport {
     private final String schemaText;
     private final String indexText;
     private final String obVersion;
+    private final String businessInvariants;
+    private final List<String> allowedActions;
     private final List<String> warnings;
 
     public ParsedReport(String extractedSql,
@@ -25,6 +27,8 @@ public final class ParsedReport {
                         String schemaText,
                         String indexText,
                         String obVersion,
+                        String businessInvariants,
+                        List<String> allowedActions,
                         List<String> warnings) {
         this.extractedSql = valueOrEmpty(extractedSql);
         this.inferredDialect = valueOrEmpty(inferredDialect);
@@ -35,6 +39,10 @@ public final class ParsedReport {
         this.schemaText = valueOrEmpty(schemaText);
         this.indexText = valueOrEmpty(indexText);
         this.obVersion = valueOrEmpty(obVersion);
+        this.businessInvariants = valueOrEmpty(businessInvariants);
+        this.allowedActions = Collections.unmodifiableList(new ArrayList<String>(allowedActions == null
+                ? Collections.<String>emptyList()
+                : allowedActions));
         this.warnings = Collections.unmodifiableList(new ArrayList<String>(warnings == null
                 ? Collections.<String>emptyList()
                 : warnings));
@@ -74,6 +82,14 @@ public final class ParsedReport {
 
     public String getObVersion() {
         return obVersion;
+    }
+
+    public String getBusinessInvariants() {
+        return businessInvariants;
+    }
+
+    public List<String> getAllowedActions() {
+        return allowedActions;
     }
 
     public List<String> getWarnings() {

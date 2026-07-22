@@ -264,6 +264,9 @@ public class TuningHarnessService {
                 request.getTableStatsText(), supplemental == null ? null : supplemental.getTableStatsText());
         String suppliedRuntime = joinDistinctNonEmpty(
                 request.getRuntimeMetricsText(), supplemental == null ? null : supplemental.getRuntimeMetricsText());
+        String suppliedBusinessInvariants = joinDistinctNonEmpty(
+                request.getBusinessInvariants(), supplemental == null ? null : supplemental.getBusinessInvariants());
+        List<String> suppliedAllowedActions = supplemental == null ? null : supplemental.getAllowedActions();
 
         request.setSqlText(previousTask.getOriginalSql());
         request.setDbDialect(previousTask.getDbDialect());
@@ -277,13 +280,17 @@ public class TuningHarnessService {
                 request.getObVersion(),
                 supplemental == null ? null : supplemental.getObVersion(),
                 previousTask.getObVersion()));
-        if (!hasText(request.getBusinessInvariants())) {
+        if (!hasText(suppliedBusinessInvariants)) {
             request.setBusinessInvariants(previousTask.getBusinessInvariants());
+        } else {
+            request.setBusinessInvariants(joinDistinctNonEmpty(previousTask.getBusinessInvariants(), suppliedBusinessInvariants));
         }
         if (request.getAllowedActions() == null || request.getAllowedActions().isEmpty()) {
-            request.setAllowedActions(previousTask.getAllowedActions() == null
+            request.setAllowedActions(suppliedAllowedActions != null && !suppliedAllowedActions.isEmpty()
+                    ? new ArrayList<String>(suppliedAllowedActions)
+                    : (previousTask.getAllowedActions() == null
                     ? null
-                    : new ArrayList<String>(previousTask.getAllowedActions()));
+                    : new ArrayList<String>(previousTask.getAllowedActions())));
         }
 
         String supplementalContext = hasText(submittedText)
@@ -308,7 +315,9 @@ public class TuningHarnessService {
                 || hasText(parsed.getExplainText())
                 || hasText(parsed.getSchemaText())
                 || hasText(parsed.getIndexText())
-                || hasText(parsed.getObVersion());
+                || hasText(parsed.getObVersion())
+                || hasText(parsed.getBusinessInvariants())
+                || !parsed.getAllowedActions().isEmpty();
         if (!structuredReport) {
             return;
         }
@@ -335,6 +344,12 @@ public class TuningHarnessService {
         }
         if (!hasText(request.getObVersion())) {
             request.setObVersion(parsed.getObVersion());
+        }
+        if (!hasText(request.getBusinessInvariants())) {
+            request.setBusinessInvariants(parsed.getBusinessInvariants());
+        }
+        if (request.getAllowedActions() == null || request.getAllowedActions().isEmpty()) {
+            request.setAllowedActions(parsed.getAllowedActions());
         }
         if (hasText(parsed.getPriorAnalysisText())) {
             String existing = request.getBusinessContext();
