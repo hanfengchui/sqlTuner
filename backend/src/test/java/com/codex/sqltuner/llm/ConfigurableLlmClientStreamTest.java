@@ -40,14 +40,14 @@ class ConfigurableLlmClientStreamTest {
 
         LlmResponse response = client.analyze(new LlmRequest("system", "user", false), new LlmStreamListener() {
             @Override
-            public void onContent(String accumulatedContent, int receivedChars) {
-                contents.add(accumulatedContent);
+            public void onContent(String deltaContent, int receivedChars) {
+                contents.add(deltaContent);
                 received.add(receivedChars);
             }
         });
 
         assertThat(response.getContent()).isEqualTo("AB");
-        assertThat(contents).contains("", "A", "AB");
+        assertThat(contents).containsExactly("A", "B");
         assertThat(contents).doesNotContain("thinking");
         assertThat(received.get(0)).isGreaterThan(0);
         assertThat(received.get(received.size() - 1)).isEqualTo("thinkingAB".length());
@@ -159,8 +159,86 @@ class ConfigurableLlmClientStreamTest {
                 .hasMessageContaining("模型流式调用失败");
     }
 
+    @Test
+    void rejectsStreamOutputOverConfiguredLimit() throws Exception {
+        startServer(exchange -> write(exchange, 200, "text/event-stream",
+                "data: {\"choices\":[{\"delta\":{\"content\":\"AB\"}}]}\n\n"
+                        + "data: {\"choices\":[{\"delta\":{\"content\":\"CD\"}}]}\n\n"
+                        + "data: [DONE]\n\n"));
+        ConfigurableLlmClient client = client();
+        clientProperties.setMaxOutputChars(3);
+
+        assertThatThrownBy(() -> client.analyze(new LlmRequest("system", "user", false), new LlmStreamListener() {
+            @Override
+            public void onContent(String deltaContent, int receivedChars) {
+            }
+        })).isInstanceOf(LlmCallException.class)
+                .hasMessageContaining("LLM_OUTPUT_TOO_LARGE");
+    }
+
+    @Test
+    void enforcesRequestCallTimeoutWhileStreaming() throws Exception {
+        startServer(exchange -> {
+            try {
+                Thread.sleep(20L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            write(exchange, 200, "text/event-stream",
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"A\"}}]}\n\n"
+                            + "data: [DONE]\n\n");
+        });
+        LlmRequest request = new LlmRequest("system", "user", false);
+        request.setCallTimeoutMs(1);
+
+        assertThatThrownBy(() -> client().analyze(request, new LlmStreamListener() {
+            @Override
+            public void onContent(String deltaContent, int receivedChars) {
+            }
+        })).isInstanceOf(LlmCallException.class)
+                .hasMessageContaining("总时限");
+    }
+
+    @Test
+    void enforcesRequestCallTimeoutForNonStreamingResponse() throws Exception {
+        startServer(exchange -> {
+            try {
+                Thread.sleep(20L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            write(exchange, 200, "application/json",
+                    "{\"choices\":[{\"message\":{\"content\":\"{\\\"ok\\\":true}\"}}]}");
+        });
+        LlmRequest request = new LlmRequest("system", "user", false);
+        request.setCallTimeoutMs(1);
+
+        assertThatThrownBy(() -> client().analyze(request))
+                .isInstanceOf(LlmCallException.class)
+                .hasMessageContaining("总时限");
+    }
+
+    @Test
+    void enforcesOutputLimitInUtf8Bytes() throws Exception {
+        startServer(exchange -> write(exchange, 200, "text/event-stream",
+                "data: {\"choices\":[{\"delta\":{\"content\":\"中中\"}}]}\n\n"
+                        + "data: [DONE]\n\n"));
+        ConfigurableLlmClient client = client();
+        clientProperties.setMaxOutputChars(5);
+
+        assertThatThrownBy(() -> client.analyze(new LlmRequest("system", "user", false), new LlmStreamListener() {
+            @Override
+            public void onContent(String deltaContent, int receivedChars) {
+            }
+        })).isInstanceOf(LlmCallException.class)
+                .hasMessageContaining("LLM_OUTPUT_TOO_LARGE");
+    }
+
+    private LlmProperties clientProperties;
+
     private ConfigurableLlmClient client() {
         LlmProperties properties = new LlmProperties();
+        clientProperties = properties;
         properties.setProvider("openai");
         properties.setApiKey("test-key");
         properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());

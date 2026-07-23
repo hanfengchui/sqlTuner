@@ -104,6 +104,36 @@ class ConfigurableLlmClientMockFailTest {
 
         assertThat(body.path("response_format").path("type").asText()).isEqualTo("json_object");
         assertThat(body.path("temperature").asDouble()).isEqualTo(0.2d);
+        assertThat(body.path("max_tokens").asInt()).isEqualTo(4096);
+    }
+
+    @Test
+    void imageRequestUsesSmallerVisionTokenBudget() {
+        LlmProperties properties = new LlmProperties();
+        properties.setProvider("dashscope");
+        ConfigurableLlmClient client = new ConfigurableLlmClient(properties, objectMapper);
+
+        JsonNode body = client.buildChatRequestBody(new LlmRequest(
+                "system",
+                "extract plan",
+                false,
+                null,
+                Arrays.asList(new LlmRequestImage("data:image/png;base64,iVBORw0KGgo="))));
+
+        assertThat(body.path("max_tokens").asInt()).isEqualTo(2048);
+    }
+
+    @Test
+    void requestMaxTokensOverridesDefaultBudget() {
+        LlmProperties properties = new LlmProperties();
+        properties.setProvider("dashscope");
+        ConfigurableLlmClient client = new ConfigurableLlmClient(properties, objectMapper);
+        LlmRequest request = new LlmRequest("system", "analyze", false);
+        request.setMaxTokens(512);
+
+        JsonNode body = client.buildChatRequestBody(request);
+
+        assertThat(body.path("max_tokens").asInt()).isEqualTo(512);
     }
 
     @Test

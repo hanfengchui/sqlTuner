@@ -9,6 +9,8 @@ public class LlmRequest {
     private boolean deepAnalysis;
     private boolean jsonOutput = true;
     private String modelOverride;
+    private Integer maxTokens;
+    private Integer callTimeoutMs;
     private List<LlmRequestImage> images = new ArrayList<LlmRequestImage>();
 
     public LlmRequest() {
@@ -66,6 +68,22 @@ public class LlmRequest {
 
     public void setModelOverride(String modelOverride) {
         this.modelOverride = modelOverride;
+    }
+
+    public Integer getMaxTokens() {
+        return maxTokens;
+    }
+
+    public void setMaxTokens(Integer maxTokens) {
+        this.maxTokens = maxTokens;
+    }
+
+    public Integer getCallTimeoutMs() {
+        return callTimeoutMs;
+    }
+
+    public void setCallTimeoutMs(Integer callTimeoutMs) {
+        this.callTimeoutMs = callTimeoutMs;
     }
 
     public List<LlmRequestImage> getImages() {

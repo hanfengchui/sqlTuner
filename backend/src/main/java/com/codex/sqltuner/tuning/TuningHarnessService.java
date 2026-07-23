@@ -43,6 +43,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -51,8 +53,15 @@ import java.util.regex.Pattern;
 @Service
 public class TuningHarnessService {
     private static final Logger log = LoggerFactory.getLogger(TuningHarnessService.class);
-    private static final long STREAM_PROGRESS_MIN_INTERVAL_NANOS = 300L * 1000L * 1000L;
-    private static final int STREAM_PROGRESS_CHAR_STEP = 1024;
+    private static final long STREAM_PROGRESS_MIN_INTERVAL_NANOS = 250L * 1000L * 1000L;
+    private static final int STREAM_PROGRESS_CHAR_STEP = 256;
+    private static final int STREAM_PROJECTOR_BUFFER_CHARS = 16 * 1024;
+    private static final int STANDARD_TASK_BUDGET_MS = 150 * 1000;
+    private static final int DEEP_TASK_BUDGET_MS = 300 * 1000;
+    private static final int CONTEXT_SNAPSHOT_MAX_CHARS = 8 * 1024;
+    private static final int RECENT_CONTEXT_MAX_CHARS = 4 * 1024;
+    private static final int CURRENT_SUPPLEMENT_MAX_CHARS = 4 * 1024;
+    private static final int BUSINESS_CONTEXT_MAX_CHARS = 16 * 1024;
     private static final java.util.Set<String> STRICT_RESULT_FIELDS =
             java.util.Collections.unmodifiableSet(new java.util.HashSet<String>(java.util.Arrays.asList(
                     "outcome", "summary", "analysisNarrative", "contextAssessment", "evidenceCatalog",
@@ -81,6 +90,7 @@ public class TuningHarnessService {
     private final InputImageValidator inputImageValidator;
     private final InputImageRepository inputImageRepository;
     private final ReportTextParser reportTextParser = new ReportTextParser();
+    private final ThreadLocal<TaskExecutionBudget> taskExecutionBudget = new ThreadLocal<TaskExecutionBudget>();
 
     public TuningHarnessService(TuningTaskRepository taskRepository,
                                 ConversationRepository conversationRepository,
@@ -394,6 +404,10 @@ public class TuningHarnessService {
 
     public void run(SqlTuningTask task) {
         log.info("runHarness param 入参: taskId: {}, deepAnalysis: {}", task.getId(), task.isDeepAnalysis());
+        taskExecutionBudget.set(new TaskExecutionBudget(task.isDeepAnalysis()
+                ? DEEP_TASK_BUDGET_MS
+                : STANDARD_TASK_BUDGET_MS));
+        try {
         validateInputLimits(task);
         SqlDialect dialect = SqlDialect.from(task.getDbDialect());
         SqlStatementProfile profile = statementParser.parse(task.getOriginalSql(), dialect);
@@ -428,7 +442,7 @@ public class TuningHarnessService {
         String userPrompt = promptCompiler.analysisPrompt(task, dialect, profile, context, findings, recentConversationContext(task));
         transition(task, TaskStatus.LLM_ANALYZING, "正在调用模型分析");
         addArtifact(task, "promptBuild", "构建模型输入", promptSummary(userPrompt, skill));
-        LlmResponse response = analyzeWithStream(task, new LlmRequest(systemPrompt, userPrompt, false));
+        LlmResponse response = analyzeStageWithStream(task, "ANALYZE", new LlmRequest(systemPrompt, userPrompt, false));
         addArtifact(task, "llmAnalyze", "模型分析完成", response);
 
         transition(task, TaskStatus.VERIFYING, "正在校验模型结构化输出");
@@ -436,7 +450,8 @@ public class TuningHarnessService {
 
         if (task.isDeepAnalysis()) {
             transition(task, TaskStatus.REVIEWING, "正在复核模型建议");
-            LlmResponse reviewResponse = analyzeWithStream(task, new LlmRequest(systemPrompt, promptCompiler.reviewPrompt(result), true));
+            LlmResponse reviewResponse = analyzeStageWithStream(task, "DEEP_REVIEW",
+                    new LlmRequest(systemPrompt, promptCompiler.reviewPrompt(result), true));
             addArtifact(task, "llmReview", "深度分析复核完成", reviewResponse);
             TuningResult reviewed = parseValidateReviewAndRepairOnce(
                     task, result, reviewResponse, context, profile, dialect, systemPrompt);
@@ -455,6 +470,8 @@ public class TuningHarnessService {
         task.setResult(result);
         task.setStatus(TaskStatus.DONE);
         task.setStatusMessage("调优建议已生成");
+        String expectedLeaseOwner = task.getLeaseOwner();
+        int expectedAttemptCount = task.getAttemptCount();
         task.setLeaseOwner(null);
         task.setLeaseUntil(null);
         addArtifact(task, "resultAssemble", "结构化结果组装完成", result.getSummary());
@@ -463,26 +480,150 @@ public class TuningHarnessService {
         eventBroker.publish(task);
         log.info("runHarness result 结果: taskId: {}, status: {}, findings: {}, mockModel: {}",
                 task.getId(), task.getStatus(), result.getFindings().size(), result.isMockModel());
+        } finally {
+            taskExecutionBudget.remove();
+        }
     }
 
     private void transition(SqlTuningTask task, TaskStatus status, String message) {
         task.setStatus(status);
         task.setStatusMessage(message);
-        taskRepository.update(task);
+        persistWorkerTask(task);
         eventBroker.publish(task);
         log.info("transitionTask result 结果: taskId: {}, status: {}, message: {}", task.getId(), status, message);
+    }
+
+    private void persistWorkerTask(SqlTuningTask task) {
+        persistWorkerTask(task, task.getLeaseOwner(), task.getAttemptCount());
+    }
+
+    private void persistWorkerTask(SqlTuningTask task, String expectedLeaseOwner, int expectedAttemptCount) {
+        if (hasText(expectedLeaseOwner)) {
+            taskRepository.updateForLease(task, expectedLeaseOwner, expectedAttemptCount);
+            return;
+        }
+        taskRepository.update(task);
+    }
+
+    private LlmResponse analyzeStageWithStream(SqlTuningTask task, String stageName, LlmRequest request) {
+        return analyzeStage(task, stageName, request, true);
+    }
+
+    private LlmResponse analyzeStage(SqlTuningTask task, String stageName, LlmRequest request) {
+        return analyzeStage(task, stageName, request, false);
+    }
+
+    /**
+     * 已持久化的模型阶段可在租约重试后直接复用。未知网络结果仍可能重复计费，
+     * 但不会因为进程在后续校验阶段失败而重复调用已经完成的阶段。
+     */
+    private LlmResponse analyzeStage(SqlTuningTask task,
+                                     String stageName,
+                                     LlmRequest request,
+                                     boolean stream) {
+        if (task == null || task.getId() == null) {
+            throw new IllegalArgumentException("模型阶段必须绑定已持久化任务");
+        }
+        applyRemainingTaskBudget(request);
+        String inputSha256 = stageInputSha256(stageName, request);
+        java.util.Optional<TaskStageResult> existing = taskRepository.findCompletedStageResult(
+                task.getId(), stageName, inputSha256);
+        if (existing.isPresent()) {
+            TaskStageResult saved = existing.get();
+            log.info("analyzeStage result 结果: taskId: {}, stage: {}, reused: true, contentLength: {}",
+                    task.getId(), stageName, saved.getContent() == null ? 0 : saved.getContent().length());
+            return stageResponse(saved);
+        }
+
+        LlmResponse response = stream
+                ? analyzeWithStream(task, request)
+                : llmClient.analyze(request);
+        TaskStageResult saved = taskRepository.saveCompletedStageResult(
+                task.getId(),
+                stageName,
+                inputSha256,
+                response.getProvider(),
+                response.getModel(),
+                response.getContent(),
+                response.getElapsedMs(),
+                response.isMock());
+        return stageResponse(saved);
+    }
+
+    private LlmResponse stageResponse(TaskStageResult saved) {
+        return new LlmResponse(
+                saved.getProvider(),
+                saved.getModel(),
+                saved.getContent(),
+                saved.getElapsedMs(),
+                saved.isMock());
+    }
+
+    private void applyRemainingTaskBudget(LlmRequest request) {
+        TaskExecutionBudget budget = taskExecutionBudget.get();
+        if (budget == null) {
+            return;
+        }
+        int remainingMs = budget.remainingMs();
+        if (remainingMs <= 0) {
+            throw new LlmCallException("调优任务超过总时限", null, false);
+        }
+        Integer requested = request.getCallTimeoutMs();
+        if (requested == null || requested <= 0 || requested > remainingMs) {
+            request.setCallTimeoutMs(remainingMs);
+        }
+    }
+
+    private String stageInputSha256(String stageName, LlmRequest request) {
+        StringBuilder material = new StringBuilder();
+        material.append(stageName == null ? "" : stageName).append('\n')
+                .append(request.getSystemPrompt() == null ? "" : request.getSystemPrompt()).append('\n')
+                .append(request.getUserPrompt() == null ? "" : request.getUserPrompt()).append('\n')
+                .append(request.getModelOverride() == null ? "" : request.getModelOverride()).append('\n')
+                .append(request.isDeepAnalysis()).append('\n')
+                .append(request.isJsonOutput());
+        if (request.getImages() != null) {
+            for (LlmRequestImage image : request.getImages()) {
+                material.append('\n').append(image == null || image.getDataUrl() == null ? "" : image.getDataUrl());
+            }
+        }
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(material.toString().getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(digest.length * 2);
+            for (byte value : digest) {
+                hex.append(String.format(Locale.ROOT, "%02x", value & 0xff));
+            }
+            return hex.toString();
+        } catch (Exception e) {
+            throw new IllegalStateException("模型阶段输入摘要失败", e);
+        }
     }
 
     private LlmResponse analyzeWithStream(final SqlTuningTask task, LlmRequest request) {
         eventBroker.resetModelStream(task);
         final ModelStreamProjector projector = new ModelStreamProjector(objectMapper);
+        final StringBuilder accumulatedModelContent = new StringBuilder();
+        final String[] lastCallbackContent = new String[]{""};
         final String[] lastDraft = new String[]{""};
         final int[] lastPublishedChars = new int[]{-1};
         final long[] lastPublishedAt = new long[]{0L};
         return llmClient.analyze(request, new com.codex.sqltuner.llm.LlmStreamListener() {
             @Override
-            public void onContent(String accumulatedContent, int receivedChars) {
-                String draft = projector.project(accumulatedContent);
+            public void onContent(String deltaContent, int receivedChars) {
+                if (hasText(deltaContent)) {
+                    if (deltaContent.startsWith(lastCallbackContent[0])) {
+                        accumulatedModelContent.setLength(0);
+                        accumulatedModelContent.append(deltaContent);
+                    } else {
+                        accumulatedModelContent.append(deltaContent);
+                    }
+                    lastCallbackContent[0] = deltaContent;
+                    if (accumulatedModelContent.length() > STREAM_PROJECTOR_BUFFER_CHARS) {
+                        accumulatedModelContent.delete(0, accumulatedModelContent.length() - STREAM_PROJECTOR_BUFFER_CHARS);
+                    }
+                }
+                String draft = projector.project(accumulatedModelContent);
                 long now = System.nanoTime();
                 // 后续字段一旦触发保守 SQL 门禁，projector 会返回空串。此时保留已经发布的
                 // 最后一版安全叙事，不能让界面退回空白，也不能继续广播被门禁的内容。
@@ -535,7 +676,7 @@ public class TuningHarnessService {
             requestImages.add(new LlmRequestImage(image.toDataUrl()));
         }
         try {
-            LlmResponse response = llmClient.analyze(new LlmRequest(
+            LlmResponse response = analyzeStage(task, "VISION_EXTRACT", new LlmRequest(
                     VISION_SYSTEM_PROMPT,
                     VISION_EXTRACTION_PROMPT,
                     false,
@@ -570,7 +711,7 @@ public class TuningHarnessService {
                     + "只返回完整严格 JSON，不要解释。字段必须包含 readable, operators, tables, rowEstimates, warnings, rawTextSummary。"
                     + "不可读时返回 readable=false，不得编造。校验错误: " + firstFailure.getMessage()
                     + "。上一次输出: " + abbreviate(response.getContent(), 4000);
-            LlmResponse repaired = llmClient.analyze(new LlmRequest(
+            LlmResponse repaired = analyzeStage(task, "VISION_REPAIR", new LlmRequest(
                     VISION_SYSTEM_PROMPT,
                     repairPrompt,
                     false,
@@ -747,7 +888,7 @@ public class TuningHarnessService {
         }
 
         addArtifact(task, "reviewValidateFailed", "深度复核输出未通过严格校验，执行一次修复", errors);
-        LlmResponse repaired = analyzeWithStream(task, new LlmRequest(
+        LlmResponse repaired = analyzeStageWithStream(task, "DEEP_REVIEW_REPAIR", new LlmRequest(
                 systemPrompt,
                 promptCompiler.reviewRepairPrompt(response.getContent(), errors),
                 true));
@@ -992,7 +1133,7 @@ public class TuningHarnessService {
         }
 
         addArtifact(task, "resultValidateFailed", "模型输出未通过严格校验，执行一次修复", validationErrors);
-        LlmResponse repaired = analyzeWithStream(task, new LlmRequest(
+        LlmResponse repaired = analyzeStageWithStream(task, "ANALYZE_REPAIR", new LlmRequest(
                 systemPrompt,
                 promptCompiler.repairPrompt(response.getContent(), validationErrors),
                 false));

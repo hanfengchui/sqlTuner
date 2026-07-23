@@ -20,8 +20,12 @@ import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 @Repository
 public class TuningTaskRepository {
@@ -174,6 +178,42 @@ public class TuningTaskRepository {
         syncArtifacts(task);
     }
 
+    @Transactional
+    public void updateForLease(final SqlTuningTask task, String expectedLeaseOwner, int expectedAttemptCount) {
+        LocalDateTime now = LocalDateTime.now();
+        task.setUpdatedAt(now);
+        long expectedVersion = task.getVersion();
+        long nextVersion = expectedVersion + 1L;
+        task.setVersion(nextVersion);
+        int updated = jdbcTemplate.update(
+                "UPDATE tuning_tasks SET status = ?, status_message = ?, task_json = ?, lease_owner = ?, "
+                        + "lease_until = CASE WHEN ? IS NULL THEN NULL "
+                        + "WHEN lease_until IS NULL OR lease_until < ? THEN ? ELSE lease_until END, "
+                        + "attempt_count = ?, next_attempt_at = ?, last_error_code = ?, version = ?, updated_at = ? "
+                        + "WHERE id = ? AND version = ? AND lease_owner = ? AND attempt_count = ?",
+                task.getStatus().name(),
+                task.getStatusMessage(),
+                taskJson(task),
+                task.getLeaseOwner(),
+                toTimestamp(task.getLeaseUntil()),
+                toTimestamp(task.getLeaseUntil()),
+                toTimestamp(task.getLeaseUntil()),
+                task.getAttemptCount(),
+                toTimestamp(task.getNextAttemptAt()),
+                task.getLastErrorCode(),
+                task.getVersion(),
+                toTimestamp(now),
+                task.getId(),
+                expectedVersion,
+                expectedLeaseOwner,
+                expectedAttemptCount);
+        if (updated != 1) {
+            task.setVersion(expectedVersion);
+            throw new OptimisticLockingFailureException("任务租约已被其他 worker 更新, taskId: " + task.getId());
+        }
+        syncArtifacts(task);
+    }
+
     public int queuedCount() {
         Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM tuning_tasks WHERE status = 'QUEUED'", Integer.class);
         return count == null ? 0 : count;
@@ -237,15 +277,26 @@ public class TuningTaskRepository {
         List<SqlTuningTask> expired = jdbcTemplate.query(
                 "SELECT * FROM tuning_tasks WHERE status NOT IN ('QUEUED','DONE','FAILED') AND lease_until < ?",
                 mapper(), toTimestamp(now));
+        List<SqlTuningTask> requeued = new ArrayList<SqlTuningTask>();
         for (SqlTuningTask task : expired) {
-            task.setStatus(TaskStatus.QUEUED);
-            task.setStatusMessage("租约过期，已重新排队");
-            task.setLeaseOwner(null);
-            task.setLeaseUntil(null);
-            task.setNextAttemptAt(now);
-            update(task);
+            int updated = jdbcTemplate.update(
+                    "UPDATE tuning_tasks SET status = 'QUEUED', status_message = ?, lease_owner = NULL, lease_until = NULL, "
+                            + "next_attempt_at = ?, version = version + 1, updated_at = ? "
+                            + "WHERE id = ? AND lease_owner = ? AND attempt_count = ? AND version = ? "
+                            + "AND status NOT IN ('QUEUED','DONE','FAILED') AND lease_until < ?",
+                    "租约过期，已重新排队",
+                    toTimestamp(now),
+                    toTimestamp(now),
+                    task.getId(),
+                    task.getLeaseOwner(),
+                    task.getAttemptCount(),
+                    task.getVersion(),
+                    toTimestamp(now));
+            if (updated == 1) {
+                requeued.add(get(task.getId()));
+            }
         }
-        return expired;
+        return requeued;
     }
 
     public void heartbeat(Long taskId, String leaseOwner) {
@@ -264,9 +315,19 @@ public class TuningTaskRepository {
     }
 
     public void releaseLease(SqlTuningTask task) {
-        task.setLeaseOwner(null);
-        task.setLeaseUntil(null);
-        update(task);
+        LocalDateTime now = LocalDateTime.now();
+        int updated = jdbcTemplate.update(
+                "UPDATE tuning_tasks SET lease_owner = NULL, lease_until = NULL, version = version + 1, updated_at = ? "
+                        + "WHERE id = ? AND lease_owner = ? AND attempt_count = ? AND version = ? "
+                        + "AND status NOT IN ('DONE','FAILED')",
+                toTimestamp(now),
+                task.getId(),
+                task.getLeaseOwner(),
+                task.getAttemptCount(),
+                task.getVersion());
+        if (updated != 1) {
+            throw new OptimisticLockingFailureException("任务租约已被其他 worker 更新, taskId: " + task.getId());
+        }
     }
 
     /**
@@ -274,6 +335,9 @@ public class TuningTaskRepository {
      * 这样即使主流程在序列化、产物同步或超长异常文本上失败，任务也能可靠进入重试或终态。
      */
     public SqlTuningTask markAfterFailure(Long taskId,
+                                          String leaseOwner,
+                                          int attemptCount,
+                                          long expectedVersion,
                                           TaskStatus status,
                                           String statusMessage,
                                           String errorCode,
@@ -284,12 +348,53 @@ public class TuningTaskRepository {
         LocalDateTime now = LocalDateTime.now();
         int updated = jdbcTemplate.update(
                 "UPDATE tuning_tasks SET status = ?, status_message = ?, lease_owner = NULL, lease_until = NULL, "
-                        + "next_attempt_at = ?, last_error_code = ?, version = version + 1, updated_at = ? WHERE id = ?",
-                status.name(), statusMessage, toTimestamp(nextAttemptAt), errorCode, toTimestamp(now), taskId);
+                        + "next_attempt_at = ?, last_error_code = ?, version = version + 1, updated_at = ? "
+                        + "WHERE id = ? AND lease_owner = ? AND attempt_count = ? AND version = ?",
+                status.name(), statusMessage, toTimestamp(nextAttemptAt), errorCode, toTimestamp(now),
+                taskId, leaseOwner, attemptCount, expectedVersion);
         if (updated != 1) {
-            throw new IllegalStateException("任务失败状态写回失败, taskId: " + taskId);
+            throw new OptimisticLockingFailureException("任务失败状态已被其他 worker 更新, taskId: " + taskId);
         }
         return get(taskId);
+    }
+
+    public Optional<TaskStageResult> findCompletedStageResult(Long taskId, String stageName, String inputSha256) {
+        List<TaskStageResult> rows = jdbcTemplate.query(
+                "SELECT * FROM task_stage_results WHERE task_id = ? AND stage_name = ? AND input_sha256 = ?",
+                stageResultMapper(), taskId, stageName, inputSha256);
+        return rows.isEmpty() ? Optional.<TaskStageResult>empty() : Optional.of(rows.get(0));
+    }
+
+    public TaskStageResult saveCompletedStageResult(Long taskId,
+                                                    String stageName,
+                                                    String inputSha256,
+                                                    String provider,
+                                                    String model,
+                                                    String content,
+                                                    long elapsedMs,
+                                                    boolean mock) {
+        LocalDateTime now = LocalDateTime.now();
+        try {
+            jdbcTemplate.update(
+                    "INSERT INTO task_stage_results(task_id, stage_name, input_sha256, provider, model, content, elapsed_ms, mock, created_at) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    taskId,
+                    stageName,
+                    inputSha256,
+                    provider == null ? "" : provider,
+                    model == null ? "" : model,
+                    content == null ? "" : content,
+                    elapsedMs,
+                    mock,
+                    toTimestamp(now));
+        } catch (DuplicateKeyException ignored) {
+            // Idempotent: another worker may have persisted the same completed stage first.
+        }
+        Optional<TaskStageResult> saved = findCompletedStageResult(taskId, stageName, inputSha256);
+        if (!saved.isPresent()) {
+            throw new IllegalStateException("任务阶段结果保存失败, taskId: " + taskId + ", stage: " + stageName);
+        }
+        return saved.get();
     }
 
     private void syncArtifacts(SqlTuningTask task) {
@@ -319,6 +424,46 @@ public class TuningTaskRepository {
                 artifact.getSummary(),
                 artifact.getPayload() == null ? null : jsonSupport.write(artifact.getPayload()),
                 toTimestamp(artifact.getCreatedAt() == null ? LocalDateTime.now() : artifact.getCreatedAt()));
+    }
+
+    private String taskJson(SqlTuningTask task) {
+        SqlTuningTask copy = copyTask(task);
+        scrubStoredTask(copy);
+        return jsonSupport.write(copy);
+    }
+
+    private SqlTuningTask copyTask(SqlTuningTask source) {
+        SqlTuningTask copy = jsonSupport.read(jsonSupport.write(source), SqlTuningTask.class);
+        if (copy.getArtifacts() == null) {
+            copy.setArtifacts(new ArrayList<HarnessArtifact>());
+        }
+        return copy;
+    }
+
+    private void scrubStoredTask(SqlTuningTask task) {
+        scrubPublicTask(task);
+    }
+
+    public void scrubPublicTask(SqlTuningTask task) {
+        if (task == null) {
+            return;
+        }
+        task.setArtifacts(new ArrayList<HarnessArtifact>());
+        task.setLeaseOwner(null);
+        task.setLeaseUntil(null);
+        task.setLastErrorCode(null);
+        if (task.getResult() != null) {
+            task.getResult().setRawModelOutput(null);
+        }
+    }
+
+    public SqlTuningTask publicView(SqlTuningTask task) {
+        if (task == null) {
+            return null;
+        }
+        SqlTuningTask copy = copyTask(task);
+        scrubPublicTask(copy);
+        return copy;
     }
 
     private void hydrateArtifacts(List<SqlTuningTask> tasks) {
@@ -372,6 +517,25 @@ public class TuningTaskRepository {
                 task.setCreatedAt(toLocalDateTime(rs.getTimestamp("created_at")));
                 task.setUpdatedAt(toLocalDateTime(rs.getTimestamp("updated_at")));
                 return task;
+            }
+        };
+    }
+
+    private RowMapper<TaskStageResult> stageResultMapper() {
+        return new RowMapper<TaskStageResult>() {
+            @Override
+            public TaskStageResult mapRow(ResultSet rs, int rowNum) throws java.sql.SQLException {
+                return new TaskStageResult(
+                        rs.getLong("id"),
+                        rs.getLong("task_id"),
+                        rs.getString("stage_name"),
+                        rs.getString("input_sha256"),
+                        rs.getString("provider"),
+                        rs.getString("model"),
+                        rs.getString("content"),
+                        rs.getLong("elapsed_ms"),
+                        rs.getBoolean("mock"),
+                        toLocalDateTime(rs.getTimestamp("created_at")));
             }
         };
     }

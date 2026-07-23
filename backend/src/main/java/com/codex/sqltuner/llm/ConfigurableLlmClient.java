@@ -6,16 +6,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.http.client.config.RequestConfig;
+import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +29,7 @@ import java.io.BufferedReader;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.Reader;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
@@ -39,6 +39,14 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class ConfigurableLlmClient implements LlmClient {
     private static final Logger log = LoggerFactory.getLogger(ConfigurableLlmClient.class);
+    private static final int DEFAULT_CONNECT_TIMEOUT_MS = 10000;
+    private static final int DEFAULT_READ_TIMEOUT_MS = 30000;
+    private static final int DEFAULT_CALL_TIMEOUT_MS = 120000;
+    private static final int DEFAULT_TEXT_MAX_TOKENS = 4096;
+    private static final int DEFAULT_VISION_MAX_TOKENS = 2048;
+    private static final int DEFAULT_MAX_OUTPUT_CHARS = 64 * 1024;
+    private static final long STREAM_CALLBACK_MIN_INTERVAL_NANOS = TimeUnit.MILLISECONDS.toNanos(250L);
+    private static final int STREAM_CALLBACK_CHAR_STEP = 256;
     // mock 不占许可；真实模型并发与持久化 worker 上限保持一致。
     private final int maxConcurrentLlm;
     private final Semaphore llmSlots;
@@ -46,6 +54,7 @@ public class ConfigurableLlmClient implements LlmClient {
     private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate;
     private final HttpComponentsClientHttpRequestFactory requestFactory;
+    private final ThreadLocal<Integer> activeCallTimeoutMs = new ThreadLocal<Integer>();
 
     public ConfigurableLlmClient(LlmProperties properties, ObjectMapper objectMapper) {
         this(properties, objectMapper, 4);
@@ -62,6 +71,7 @@ public class ConfigurableLlmClient implements LlmClient {
         this.maxConcurrentLlm = maxConcurrentLlm;
         this.llmSlots = new Semaphore(maxConcurrentLlm, true);
         this.requestFactory = buildRequestFactory();
+        this.requestFactory.setHttpContextFactory((method, uri) -> requestContext());
         this.restTemplate = new RestTemplate(requestFactory);
     }
 
@@ -73,6 +83,7 @@ public class ConfigurableLlmClient implements LlmClient {
     @Override
     public LlmResponse analyze(LlmRequest request, LlmStreamListener listener) {
         long start = System.currentTimeMillis();
+        int callTimeoutMs = resolveCallTimeoutMs(request);
         String provider = properties.getProvider() == null ? "mock" : properties.getProvider();
         String model = resolveModel(request);
         log.info("analyze request 请求: provider: {}, model: {}, promptLength: {}, deepAnalysis: {}, imageCount: {}",
@@ -93,7 +104,9 @@ public class ConfigurableLlmClient implements LlmClient {
         try {
             try {
                 // 等不到许可就抛异常让任务失败，而不是无限排队占满队列。
-                long timeoutMs = properties.getTimeoutMs() <= 0 ? 30000L : properties.getTimeoutMs();
+                long timeoutMs = Math.min(
+                        positiveOrDefault(properties.getTimeoutMs(), DEFAULT_READ_TIMEOUT_MS),
+                        callTimeoutMs);
                 if (!llmSlots.tryAcquire(timeoutMs, TimeUnit.MILLISECONDS)) {
                     throw new LlmCallException("模型调用并发已达上限 " + maxConcurrentLlm + "，请稍后重试", null);
                 }
@@ -103,6 +116,8 @@ public class ConfigurableLlmClient implements LlmClient {
                 throw new LlmCallException("模型调用在等待并发许可时被中断", e);
             }
             refreshTimeouts();
+            ensureWithinCallTimeout(start, callTimeoutMs);
+            activeCallTimeoutMs.set(remainingCallTimeoutMs(start, callTimeoutMs));
 
             boolean streamEnabled = listener != null && !request.hasImages();
             ObjectNode body = buildChatRequestBody(request, streamEnabled);
@@ -116,37 +131,78 @@ public class ConfigurableLlmClient implements LlmClient {
                 url = url.replaceAll("/+$", "") + "/chat/completions";
             }
             if (streamEnabled) {
-                String content = streamAnalyze(url, headers, body, listener);
+                String content = streamAnalyze(url, headers, body, listener, start, callTimeoutMs);
                 log.info("analyze response 响应: status: streamed, elapsedMs: {}, contentLength: {}",
                         System.currentTimeMillis() - start, content == null ? 0 : content.length());
                 return new LlmResponse(provider, model, content, System.currentTimeMillis() - start, false);
             }
-            ResponseEntity<String> response = restTemplate.postForEntity(
-                    url,
-                    new HttpEntity<byte[]>(body.toString().getBytes(StandardCharsets.UTF_8), headers),
-                    String.class);
-            String content = extractContent(response.getBody(), response.getStatusCodeValue());
+            String content = nonStreamingAnalyze(url, headers, body, start, callTimeoutMs);
             if (listener != null && content != null && !content.isEmpty()) {
                 listener.onContent(content, content.length());
             }
-            log.info("analyze response 响应: status: {}, elapsedMs: {}, contentLength: {}",
-                    response.getStatusCodeValue(), System.currentTimeMillis() - start, content == null ? 0 : content.length());
+            log.info("analyze response 响应: status: completed, elapsedMs: {}, contentLength: {}",
+                    System.currentTimeMillis() - start, content == null ? 0 : content.length());
             return new LlmResponse(provider, model, content, System.currentTimeMillis() - start, false);
         } catch (LlmCallException e) {
             // extractContent 抛出的业务错误，原样上抛，不再降级 mock。
             throw e;
         } catch (RestClientResponseException e) {
             throw new LlmCallException("模型调用失败: " + summarizeHttpError(e), e);
+        } catch (RestClientException e) {
+            if (callTimeoutExceeded(start, callTimeoutMs)) {
+                throw new LlmCallException("模型调用超过总时限 " + callTimeoutMs + "ms", e, true);
+            }
+            throw new LlmCallException("模型调用失败: " + e.getMessage(), e);
         } catch (Exception e) {
             // 真实调用失败（网络/超时/限流/鉴权）：抛出，由上层把任务标记为 FAILED，
             // 不再静默回退成 mock 当成功（避免逼真假建议被当真执行）。
             log.error("analyze error 异常: provider: {}, reason: {}", provider, e.getMessage());
             throw new LlmCallException("模型调用失败: " + e.getMessage(), e);
         } finally {
+            activeCallTimeoutMs.remove();
             if (acquired) {
                 llmSlots.release();
             }
         }
+    }
+
+    private String nonStreamingAnalyze(String url,
+                                       HttpHeaders headers,
+                                       ObjectNode body,
+                                       long callStartedAtMs,
+                                       int callTimeoutMs) {
+        RequestCallback callback = request -> {
+            request.getHeaders().putAll(headers);
+            request.getBody().write(body.toString().getBytes(StandardCharsets.UTF_8));
+        };
+        return restTemplate.execute(url, HttpMethod.POST, callback, new ResponseExtractor<String>() {
+            @Override
+            public String extractData(ClientHttpResponse response) throws IOException {
+                String responseBody = readResponseBody(response, callStartedAtMs, callTimeoutMs);
+                ensureWithinCallTimeout(callStartedAtMs, callTimeoutMs);
+                return extractContent(responseBody, response.getRawStatusCode());
+            }
+        });
+    }
+
+    private String readResponseBody(ClientHttpResponse response,
+                                    long callStartedAtMs,
+                                    int callTimeoutMs) throws IOException {
+        Charset charset = response.getHeaders().getContentType() != null
+                && response.getHeaders().getContentType().getCharset() != null
+                ? response.getHeaders().getContentType().getCharset()
+                : StandardCharsets.UTF_8;
+        StringBuilder responseBody = new StringBuilder();
+        char[] buffer = new char[4096];
+        try (Reader reader = new InputStreamReader(response.getBody(), charset)) {
+            int read;
+            while ((read = reader.read(buffer)) != -1) {
+                ensureWithinCallTimeout(callStartedAtMs, callTimeoutMs);
+                responseBody.append(buffer, 0, read);
+                ensureRawResponseWithinLimit(responseBody.length());
+            }
+        }
+        return responseBody.toString();
     }
 
     private void applyMockDelay() {
@@ -183,6 +239,7 @@ public class ConfigurableLlmClient implements LlmClient {
             if (content == null || content.isEmpty()) {
                 throw new LlmCallException("模型响应缺少 content, status: " + statusCode, null);
             }
+            ensureOutputWithinLimit(utf8Length(content));
             return content;
         }
         // 没有 choices：通常是错误信封。只暴露安全 code，不回显可能含提示词/SQL 的 message/body。
@@ -228,6 +285,7 @@ public class ConfigurableLlmClient implements LlmClient {
         if (streamEnabled) {
             body.put("stream", true);
         }
+        body.put("max_tokens", resolveMaxTokens(request));
         String reasoningEffort = reasoningEffort();
         if (!request.hasImages() && reasoningEffort != null) {
             body.put("reasoning_effort", reasoningEffort);
@@ -236,7 +294,7 @@ public class ConfigurableLlmClient implements LlmClient {
         return body;
     }
 
-    String streamAnalyze(String url, HttpHeaders headers, ObjectNode body, LlmStreamListener listener) {
+    String streamAnalyze(String url, HttpHeaders headers, ObjectNode body, LlmStreamListener listener, long callStartedAtMs, int callTimeoutMs) {
         StringBuilder content = new StringBuilder();
         RequestCallback callback = request -> {
             request.getHeaders().putAll(headers);
@@ -252,11 +310,17 @@ public class ConfigurableLlmClient implements LlmClient {
                 boolean sawServerSentEvent = false;
                 boolean completed = false;
                 int receivedChars = 0;
+                int outputBytes = 0;
+                int lastPublishedChars = 0;
+                long lastPublishedAt = 0L;
+                StringBuilder pendingDelta = new StringBuilder();
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.getBody(), charset))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
+                        ensureWithinCallTimeout(callStartedAtMs, callTimeoutMs);
                         if (!line.startsWith("data:")) {
                             plainBody.append(line);
+                            ensureRawResponseWithinLimit(plainBody.length());
                             continue;
                         }
                         sawServerSentEvent = true;
@@ -265,6 +329,7 @@ public class ConfigurableLlmClient implements LlmClient {
                             continue;
                         }
                         if ("[DONE]".equals(payload)) {
+                            publishPendingDelta(listener, pendingDelta, receivedChars);
                             completed = true;
                             break;
                         }
@@ -282,15 +347,25 @@ public class ConfigurableLlmClient implements LlmClient {
                             String finishReason = extractStreamFinishReason(chunk);
                             receivedChars += delta.length() + reasoning.length();
                             if (delta != null && !delta.isEmpty()) {
+                                int deltaBytes = utf8Length(delta);
+                                ensureOutputWithinLimit(outputBytes + deltaBytes);
+                                outputBytes += deltaBytes;
                                 content.append(delta);
+                                pendingDelta.append(delta);
                             }
-                            if (listener != null && (receivedChars > 0 || content.length() > 0)) {
-                                listener.onContent(content.toString(), receivedChars);
+                            if (listener != null
+                                    && pendingDelta.length() > 0
+                                    && shouldPublishStream(receivedChars, lastPublishedChars, lastPublishedAt)) {
+                                listener.onContent(pendingDelta.toString(), receivedChars);
+                                pendingDelta.setLength(0);
+                                lastPublishedChars = receivedChars;
+                                lastPublishedAt = System.nanoTime();
                             }
                             if (finishReason != null) {
                                 if (!"stop".equalsIgnoreCase(finishReason)) {
                                     throw new LlmCallException("模型流式输出未完整完成, finishReason=" + safeErrorCode(finishReason), null);
                                 }
+                                publishPendingDelta(listener, pendingDelta, receivedChars);
                                 completed = true;
                                 break;
                             }
@@ -303,6 +378,7 @@ public class ConfigurableLlmClient implements LlmClient {
                 }
                 if (!sawServerSentEvent) {
                     String fallback = extractContent(plainBody.toString(), response.getRawStatusCode());
+                    ensureOutputWithinLimit(fallback == null ? 0 : utf8Length(fallback));
                     if (listener != null && fallback != null && !fallback.isEmpty()) {
                         listener.onContent(fallback, fallback.length());
                     }
@@ -321,6 +397,9 @@ public class ConfigurableLlmClient implements LlmClient {
         } catch (RestClientResponseException e) {
             throw new LlmCallException("模型流式调用失败: " + summarizeHttpError(e), e);
         } catch (RestClientException e) {
+            if (callTimeoutExceeded(callStartedAtMs, callTimeoutMs)) {
+                throw new LlmCallException("模型调用超过总时限 " + callTimeoutMs + "ms", e, true);
+            }
             throw new LlmCallException("模型流式调用失败: " + e.getMessage(), e);
         }
     }
@@ -419,6 +498,84 @@ public class ConfigurableLlmClient implements LlmClient {
                 || normalized.contains("temporarily_unavailable");
     }
 
+    private void ensureWithinCallTimeout(long callStartedAtMs, int callTimeoutMs) {
+        long timeoutMs = positiveOrDefault(callTimeoutMs, DEFAULT_CALL_TIMEOUT_MS);
+        if (callTimeoutExceeded(callStartedAtMs, timeoutMs)) {
+            throw new LlmCallException("模型调用超过总时限 " + timeoutMs + "ms", null, true);
+        }
+    }
+
+    private boolean callTimeoutExceeded(long callStartedAtMs, long timeoutMs) {
+        // 底层 socket timeout 与总预算正好落在同一毫秒时，也必须归类为总时限。
+        return System.currentTimeMillis() - callStartedAtMs >= timeoutMs;
+    }
+
+    private void ensureOutputWithinLimit(int outputBytes) {
+        int max = positiveOrDefault(properties.getMaxOutputChars(), DEFAULT_MAX_OUTPUT_CHARS);
+        if (outputBytes > max) {
+            throw new LlmCallException("模型输出超过上限 " + max + " 字节, code=LLM_OUTPUT_TOO_LARGE", null, false);
+        }
+    }
+
+    private void ensureRawResponseWithinLimit(int responseChars) {
+        int maxOutputBytes = positiveOrDefault(properties.getMaxOutputChars(), DEFAULT_MAX_OUTPUT_CHARS);
+        // OpenAI 兼容响应还会包含 JSON 信封；保留两倍余量，仍防止异常供应商无限扩张内存。
+        int maxResponseChars = Math.max(1024, maxOutputBytes * 2);
+        if (responseChars > maxResponseChars) {
+            throw new LlmCallException("模型响应超过安全上限, code=LLM_OUTPUT_TOO_LARGE", null, false);
+        }
+    }
+
+    private int utf8Length(String value) {
+        return value == null ? 0 : value.getBytes(StandardCharsets.UTF_8).length;
+    }
+
+    private int positiveOrDefault(int value, int defaultValue) {
+        return value > 0 ? value : defaultValue;
+    }
+
+    private boolean shouldPublishStream(int receivedChars, int lastPublishedChars, long lastPublishedAt) {
+        if (lastPublishedAt == 0L) {
+            return true;
+        }
+        return receivedChars - lastPublishedChars >= STREAM_CALLBACK_CHAR_STEP
+                || System.nanoTime() - lastPublishedAt >= STREAM_CALLBACK_MIN_INTERVAL_NANOS;
+    }
+
+    private void publishPendingDelta(LlmStreamListener listener, StringBuilder pendingDelta, int receivedChars) {
+        if (listener == null || pendingDelta.length() == 0) {
+            return;
+        }
+        listener.onContent(pendingDelta.toString(), receivedChars);
+        pendingDelta.setLength(0);
+    }
+
+    private int resolveCallTimeoutMs(LlmRequest request) {
+        if (request != null && request.getCallTimeoutMs() != null && request.getCallTimeoutMs() > 0) {
+            return request.getCallTimeoutMs();
+        }
+        return positiveOrDefault(properties.getCallTimeoutMs(), DEFAULT_CALL_TIMEOUT_MS);
+    }
+
+    private int remainingCallTimeoutMs(long callStartedAtMs, int callTimeoutMs) {
+        long elapsedMs = System.currentTimeMillis() - callStartedAtMs;
+        long remaining = (long) callTimeoutMs - elapsedMs;
+        if (remaining <= 0L) {
+            throw new LlmCallException("模型调用超过总时限 " + callTimeoutMs + "ms", null, true);
+        }
+        return remaining > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) remaining;
+    }
+
+    private int resolveMaxTokens(LlmRequest request) {
+        int configured = request != null && request.hasImages()
+                ? positiveOrDefault(properties.getVisionMaxTokens(), DEFAULT_VISION_MAX_TOKENS)
+                : positiveOrDefault(properties.getTextMaxTokens(), DEFAULT_TEXT_MAX_TOKENS);
+        if (request != null && request.getMaxTokens() != null && request.getMaxTokens() > 0) {
+            return Math.min(request.getMaxTokens(), configured);
+        }
+        return configured;
+    }
+
     private String summarizeHttpError(RestClientResponseException error) {
         String body = error.getResponseBodyAsString();
         String code = "";
@@ -440,9 +597,9 @@ public class ConfigurableLlmClient implements LlmClient {
         connectionManager.setMaxTotal(Math.max(32, maxPerRoute * 2));
         connectionManager.setDefaultMaxPerRoute(maxPerRoute);
         RequestConfig config = RequestConfig.custom()
-                .setConnectTimeout(properties.getTimeoutMs())
-                .setSocketTimeout(properties.getTimeoutMs())
-                .setConnectionRequestTimeout(properties.getTimeoutMs())
+                .setConnectTimeout(positiveOrDefault(properties.getConnectTimeoutMs(), DEFAULT_CONNECT_TIMEOUT_MS))
+                .setSocketTimeout(positiveOrDefault(properties.getReadTimeoutMs(), DEFAULT_READ_TIMEOUT_MS))
+                .setConnectionRequestTimeout(positiveOrDefault(properties.getConnectTimeoutMs(), DEFAULT_CONNECT_TIMEOUT_MS))
                 .build();
         CloseableHttpClient client = HttpClients.custom()
                 .setConnectionManager(connectionManager)
@@ -453,15 +610,33 @@ public class ConfigurableLlmClient implements LlmClient {
         return new HttpComponentsClientHttpRequestFactory(client);
     }
 
+    private HttpClientContext requestContext() {
+        int connectTimeoutMs = positiveOrDefault(properties.getConnectTimeoutMs(), DEFAULT_CONNECT_TIMEOUT_MS);
+        int readTimeoutMs = positiveOrDefault(properties.getReadTimeoutMs(), DEFAULT_READ_TIMEOUT_MS);
+        Integer activeTimeout = activeCallTimeoutMs.get();
+        if (activeTimeout != null && activeTimeout > 0) {
+            readTimeoutMs = Math.min(readTimeoutMs, activeTimeout);
+        }
+        RequestConfig requestConfig = RequestConfig.custom()
+                .setConnectTimeout(connectTimeoutMs)
+                .setSocketTimeout(readTimeoutMs)
+                .setConnectionRequestTimeout(connectTimeoutMs)
+                .build();
+        HttpClientContext context = HttpClientContext.create();
+        context.setRequestConfig(requestConfig);
+        return context;
+    }
+
     /**
      * timeout 允许运行期通过管理页调整。
      * 这里在共享 requestFactory 上刷新超时，避免每次 new RestTemplate 丢掉连接池收益。
      */
     private void refreshTimeouts() {
-        int timeoutMs = properties.getTimeoutMs() <= 0 ? 30000 : properties.getTimeoutMs();
-        requestFactory.setConnectTimeout(timeoutMs);
-        requestFactory.setReadTimeout(timeoutMs);
-        requestFactory.setConnectionRequestTimeout(timeoutMs);
+        int connectTimeoutMs = positiveOrDefault(properties.getConnectTimeoutMs(), DEFAULT_CONNECT_TIMEOUT_MS);
+        int readTimeoutMs = positiveOrDefault(properties.getReadTimeoutMs(), DEFAULT_READ_TIMEOUT_MS);
+        requestFactory.setConnectTimeout(connectTimeoutMs);
+        requestFactory.setReadTimeout(readTimeoutMs);
+        requestFactory.setConnectionRequestTimeout(connectTimeoutMs);
     }
 
     /**

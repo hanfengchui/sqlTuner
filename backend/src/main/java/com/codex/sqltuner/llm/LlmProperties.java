@@ -13,6 +13,12 @@ public class LlmProperties {
     private String apiKey;
     private String reasoningEffort;
     private int timeoutMs = 30000;
+    private int connectTimeoutMs = 10000;
+    private int readTimeoutMs = 30000;
+    private int callTimeoutMs = 120000;
+    private int textMaxTokens = 4096;
+    private int visionMaxTokens = 2048;
+    private int maxOutputChars = 64 * 1024;
     private int mockDelayMs;
 
     public String getProvider() {
@@ -69,6 +75,54 @@ public class LlmProperties {
 
     public void setTimeoutMs(int timeoutMs) {
         this.timeoutMs = timeoutMs;
+    }
+
+    public int getConnectTimeoutMs() {
+        return connectTimeoutMs;
+    }
+
+    public void setConnectTimeoutMs(int connectTimeoutMs) {
+        this.connectTimeoutMs = connectTimeoutMs;
+    }
+
+    public int getReadTimeoutMs() {
+        return readTimeoutMs;
+    }
+
+    public void setReadTimeoutMs(int readTimeoutMs) {
+        this.readTimeoutMs = readTimeoutMs;
+    }
+
+    public int getCallTimeoutMs() {
+        return callTimeoutMs;
+    }
+
+    public void setCallTimeoutMs(int callTimeoutMs) {
+        this.callTimeoutMs = callTimeoutMs;
+    }
+
+    public int getTextMaxTokens() {
+        return textMaxTokens;
+    }
+
+    public void setTextMaxTokens(int textMaxTokens) {
+        this.textMaxTokens = textMaxTokens;
+    }
+
+    public int getVisionMaxTokens() {
+        return visionMaxTokens;
+    }
+
+    public void setVisionMaxTokens(int visionMaxTokens) {
+        this.visionMaxTokens = visionMaxTokens;
+    }
+
+    public int getMaxOutputChars() {
+        return maxOutputChars;
+    }
+
+    public void setMaxOutputChars(int maxOutputChars) {
+        this.maxOutputChars = maxOutputChars;
     }
 
     public int getMockDelayMs() {

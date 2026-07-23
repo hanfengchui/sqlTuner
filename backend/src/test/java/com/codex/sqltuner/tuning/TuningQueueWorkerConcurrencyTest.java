@@ -234,6 +234,50 @@ class TuningQueueWorkerConcurrencyTest {
         }
     }
 
+    @Test
+    void expiredWorkerFailureCannotOverwriteTaskClaimedByAnotherWorker() throws Exception {
+        JdbcTemplate jdbcTemplate = JdbcTestSupport.jdbcTemplate();
+        QueueProperties queueProperties = new QueueProperties();
+        queueProperties.setWorkerCount(1);
+        queueProperties.setMaxRunning(1);
+        TuningTaskRepository repository = repository(jdbcTemplate, queueProperties);
+        SqlTuningTask queued = createQueuedTasks(jdbcTemplate, repository, 1).get(0);
+        CountDownLatch staleFailureHandled = new CountDownLatch(1);
+        TuningHarnessService harnessService = mock(TuningHarnessService.class);
+        doAnswer(invocation -> {
+            SqlTuningTask stale = invocation.getArgument(0);
+            jdbcTemplate.update("UPDATE tuning_tasks SET lease_until = ? WHERE id = ?",
+                    Timestamp.valueOf(LocalDateTime.now().minusSeconds(5)), stale.getId());
+            repository.requeueExpiredLeases();
+            SqlTuningTask replacement = repository.claimNext("worker-b");
+            assertThat(replacement).isNotNull();
+            throw new IllegalStateException("old worker failed after lease expiry");
+        }).when(harnessService).run(any(SqlTuningTask.class));
+
+        TaskEventBroker broker = new TaskEventBroker() {
+            @Override
+            public void publish(SqlTuningTask task) {
+                super.publish(task);
+                if (task != null && "worker-b".equals(task.getLeaseOwner())) {
+                    staleFailureHandled.countDown();
+                }
+            }
+        };
+        TuningQueueWorker worker = new TuningQueueWorker(repository, harnessService, broker, queueProperties);
+        try {
+            worker.dispatch();
+            assertThat(staleFailureHandled.await(5, TimeUnit.SECONDS)).isTrue();
+
+            SqlTuningTask current = repository.get(queued.getId());
+            assertThat(current.getLeaseOwner()).isEqualTo("worker-b");
+            assertThat(current.getAttemptCount()).isEqualTo(2);
+            assertThat(current.getStatus()).isEqualTo(TaskStatus.RECEIVED);
+            assertThat(current.getLastErrorCode()).isNull();
+        } finally {
+            worker.shutdown();
+        }
+    }
+
     private boolean waitUntilWorkersReleasedLeases(JdbcTemplate jdbcTemplate, int expectedCount) throws InterruptedException {
         long deadline = System.currentTimeMillis() + 5000L;
         while (System.currentTimeMillis() < deadline) {

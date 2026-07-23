@@ -112,16 +112,25 @@ public class TuningQueueWorker {
     private void handleFailure(SqlTuningTask task, Throwable error) {
         // 异常消息可能包含模型原文或用户 SQL；日志只记录类型和任务 ID。
         log.error("runQueuedTask taskId: {} errorType: {}", task.getId(), error.getClass().getSimpleName());
-        SqlTuningTask saved = taskRepository.get(task.getId());
-        boolean retry = saved.getAttemptCount() < 3 && isRetryable(error);
+        // 只能使用本 worker 最后一次成功持有的租约凭据。重新读取任务会拿到新 worker
+        // 的 lease_owner，导致旧 worker 在失败路径覆盖已重领任务。
+        boolean retry = task.getAttemptCount() < 3 && isRetryable(error);
         String detail = safeFailureDetail(error);
-        SqlTuningTask updated = taskRepository.markAfterFailure(
-                task.getId(),
-                retry ? TaskStatus.QUEUED : TaskStatus.FAILED,
-                retry ? "临时错误，等待重试: " + detail : "调优失败: " + detail,
-                retry ? "TASK_RETRYABLE" : "TASK_FAILED",
-                retry ? LocalDateTime.now().plusSeconds(5L * saved.getAttemptCount()) : null);
-        eventBroker.publish(updated);
+        try {
+            SqlTuningTask updated = taskRepository.markAfterFailure(
+                    task.getId(),
+                    task.getLeaseOwner(),
+                    task.getAttemptCount(),
+                    task.getVersion(),
+                    retry ? TaskStatus.QUEUED : TaskStatus.FAILED,
+                    retry ? "临时错误，等待重试: " + detail : "调优失败: " + detail,
+                    retry ? "TASK_RETRYABLE" : "TASK_FAILED",
+                    retry ? LocalDateTime.now().plusSeconds(5L * task.getAttemptCount()) : null);
+            eventBroker.publish(updated);
+        } catch (org.springframework.dao.OptimisticLockingFailureException stale) {
+            log.warn("runQueuedTask stale failure ignored: taskId: {}, leaseOwner: {}", task.getId(), task.getLeaseOwner());
+            eventBroker.publish(taskRepository.get(task.getId()));
+        }
     }
 
     private String safeFailureDetail(Throwable error) {

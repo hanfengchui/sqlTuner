@@ -17,6 +17,7 @@ public class ModelStreamProjector {
     private static final Pattern EXECUTABLE_SQL = Pattern.compile(
             "(?i)(?:```\\s*sql\\b|\\bsql\\s*:|\\b(?:select|with|insert|replace|update|delete|merge|create|alter|drop|"
                     + "truncate|rename|grant|revoke|call|exec|execute|begin|declare|explain|analyze|lock|set|commit|rollback)\\b)");
+    private static final int MAX_BUFFER_LENGTH = 16 * 1024;
     private static final int MAX_DRAFT_LENGTH = 12 * 1024;
     private final ObjectMapper objectMapper;
 
@@ -25,7 +26,11 @@ public class ModelStreamProjector {
     }
 
     public String project(String accumulatedModelContent) {
-        if (accumulatedModelContent == null || !accumulatedModelContent.contains("analysisNarrative")) {
+        return project((CharSequence) accumulatedModelContent);
+    }
+
+    public String project(CharSequence accumulatedModelContent) {
+        if (accumulatedModelContent == null || indexOf(accumulatedModelContent, "analysisNarrative", 0) < 0) {
             return "";
         }
         String narrative = narrativeSlice(accumulatedModelContent);
@@ -49,24 +54,42 @@ public class ModelStreamProjector {
         return sanitize(String.join("\n\n", parts));
     }
 
-    private String narrativeSlice(String value) {
-        int start = value.indexOf("\"analysisNarrative\"");
+    private String narrativeSlice(CharSequence value) {
+        int start = indexOf(value, "\"analysisNarrative\"", 0);
         if (start < 0) {
             return "";
         }
-        int end = value.length();
+        int end = Math.min(value.length(), start + MAX_BUFFER_LENGTH);
         String[] stopFields = new String[]{
                 "\"contextAssessment\"", "\"evidenceCatalog\"", "\"diagnoses\"", "\"rewriteCandidates\"",
                 "\"indexCandidates\"", "\"validationPlan\"", "\"missingInformation\"", "\"safetyWarnings\"",
                 "\"review\"", "\"findings\"", "\"rewriteSql\"", "\"indexSuggestions\"", "\"rawModelOutput\""
         };
         for (String field : stopFields) {
-            int index = value.indexOf(field, start + 1);
+            int index = indexOf(value, field, start + 1);
             if (index > start && index < end) {
                 end = index;
             }
         }
-        return value.substring(start, end);
+        return value.subSequence(start, end).toString();
+    }
+
+    private int indexOf(CharSequence value, String pattern, int fromIndex) {
+        if (value == null || pattern == null || pattern.isEmpty()) {
+            return -1;
+        }
+        int start = Math.max(0, fromIndex);
+        int max = value.length() - pattern.length();
+        for (int i = start; i <= max; i++) {
+            int j = 0;
+            while (j < pattern.length() && value.charAt(i + j) == pattern.charAt(j)) {
+                j++;
+            }
+            if (j == pattern.length()) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private void appendMatches(Pattern pattern, String value, List<PositionedText> parts) {
