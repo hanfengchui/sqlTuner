@@ -2,6 +2,7 @@ import { DatabaseZap, LogIn } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { UserView } from "../types/api";
+import styles from "./LoginPage.module.css";
 
 interface LoginPageProps {
   onLogin: (user: UserView) => void;
@@ -28,7 +29,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   }
 
   return (
-    <main className="login-page">
+    <main className={`${styles.loginPage} login-page`}>
       <section className="login-card">
         <div className="brand-icon large">
           <DatabaseZap size={30} />

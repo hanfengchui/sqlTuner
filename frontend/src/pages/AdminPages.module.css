@@ -1,0 +1,161 @@
+.adminPage {
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 18px;
+}
+
+.adminPage > :global(header),
+.adminPage :global(.page-header-row),
+.adminPage :global(.model-summary),
+.adminPage :global(.config-editor-card),
+.adminPage :global(.editor-panel),
+.adminPage :global(.admin-list),
+.adminPage :global(.rule-card) {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.adminPage > :global(header),
+.adminPage :global(.page-header-row) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+  padding: 16px;
+}
+
+.adminPage :global(.section-title-row),
+.adminPage :global(.page-header-row) { display: flex; align-items: center; }
+
+.adminPage :global(header span),
+.adminPage :global(.model-stat-list span),
+.adminPage :global(.skill-list-meta),
+.adminPage :global(.rule-card span) { color: var(--muted); font-size: 12px; }
+
+.adminPage :global(h1) { margin: 3px 0; font-size: 22px; }
+.adminPage :global(p) { margin: 0; color: var(--muted); line-height: 1.5; }
+
+.adminPage :global(.ghost-button) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.adminPage :global(.model-console),
+.adminPage :global(.skill-admin-grid) {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 14px;
+}
+
+.adminPage :global(.model-summary),
+.adminPage :global(.config-editor-card),
+.adminPage :global(.editor-panel),
+.adminPage :global(.admin-list) { padding: 14px; }
+
+.adminPage :global(.model-mark),
+.adminPage :global(.skill-editor-icon) {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+
+.adminPage :global(.model-summary h2) { margin: 12px 0 4px; }
+.adminPage :global(.model-stat-list) { display: grid; gap: 8px; margin-top: 16px; }
+.adminPage :global(.model-stat-list div) {
+  display: grid;
+  grid-template-columns: 22px 80px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.adminPage :global(.model-stat-list strong) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.adminPage :global(.field-grid) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.adminPage :global(.field-grid label),
+.adminPage :global(.prompt-preview label) { display: grid; gap: 6px; color: var(--text-2); font-size: 13px; font-weight: 700; }
+.adminPage :global(.endpoint-control) { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.adminPage :global(.endpoint-control input) { min-width: 0; }
+.adminPage :global(.endpoint-control button) { white-space: nowrap; }
+.adminPage :global(.span-2) { grid-column: span 2; }
+
+.adminPage :global(.callout-box),
+.adminPage :global(.skill-editor-callout),
+.adminPage :global(.test-result) {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.adminPage :global(.editor-actions) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  color: var(--muted);
+}
+
+.adminPage :global(.action-row) { display: flex; gap: 8px; }
+.adminPage :global(.test-result) { display: grid; }
+.adminPage :global(.test-result code) { color: var(--text); white-space: pre-wrap; }
+.adminPage :global(.prompt-preview) { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+.adminPage :global(.prompt-preview summary) { cursor: pointer; color: var(--text-2); font-weight: 700; }
+.adminPage :global(.prompt-preview > p) { margin: 8px 0 10px; font-size: 13px; }
+.adminPage :global(.prompt-preview textarea) { min-height: 156px; font-family: "JetBrains Mono", monospace; line-height: 1.55; }
+.adminPage :global(.prompt-preview .test-result pre) {
+  max-height: 560px;
+  margin: 0;
+  overflow: auto;
+  color: var(--text);
+  white-space: pre-wrap;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.adminPage :global(.admin-list) { display: grid; align-content: start; gap: 8px; }
+.adminPage :global(.skill-list-summary) { padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
+.adminPage :global(.admin-list button) { padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); text-align: left; }
+.adminPage :global(.admin-list button.active) { border-color: var(--accent); background: var(--accent-weak); }
+.adminPage :global(.skill-list-head),
+.adminPage :global(.skill-list-meta),
+.adminPage :global(.skill-editor-head),
+.adminPage :global(.skill-editor-title),
+.adminPage :global(.skill-editor-status) { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.adminPage :global(.skill-editor-title) { justify-content: flex-start; }
+.adminPage :global(.editor-panel textarea) { min-height: 420px; font-family: "JetBrains Mono", monospace; line-height: 1.55; }
+
+.adminPage :global(.rule-overview) { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+.adminPage :global(.rule-overview article) { padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.adminPage :global(.rule-overview strong) { display: block; font-size: 24px; }
+.adminPage :global(.rule-overview span) { color: var(--muted); }
+.adminPage :global(.rule-filter) { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.adminPage :global(.rule-filter button) { padding: 7px 11px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text-2); }
+.adminPage :global(.rule-filter button.active) { border-color: var(--accent); background: var(--accent-weak); color: var(--accent-ink); }
+.adminPage :global(.rule-grid) { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.adminPage :global(.rule-card h3) { margin: 8px 0; font-size: 15px; }
+.adminPage :global(.rule-card code) { display: inline-block; margin-top: 10px; color: var(--accent-ink); }

@@ -1,0 +1,301 @@
+.appShell {
+  height: 100vh;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.appShell :global(.sidebar) {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 10;
+  width: var(--sidebar-w);
+  min-height: 0;
+  overflow: hidden;
+  padding: 14px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-right: 1px solid var(--rail-border);
+  background: var(--rail-bg);
+  color: var(--rail-text);
+}
+
+.appShell :global(.sidebar-footer) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 50px;
+  padding: 10px 6px 0;
+  border-top: 1px solid var(--rail-border);
+  color: var(--rail-text);
+}
+
+.appShell :global(.sidebar-footer span),
+.appShell :global(.section-label) {
+  color: var(--rail-muted);
+  font-size: 12px;
+}
+
+.appShell :global(.sidebar-footer > div:nth-child(2)) { flex: 1; min-width: 0; }
+.appShell :global(.sidebar-footer strong),
+.appShell :global(.sidebar-footer span) { display: block; }
+.appShell :global(.sidebar-footer strong) { font-size: 13px; }
+
+.appShell :global(.new-chat-card),
+.appShell :global(.ghost-button),
+.appShell :global(.icon-button),
+.appShell :global(.conversation-delete) {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.appShell :global(.new-chat-card) {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--rail-text);
+  text-align: left;
+  font-weight: 600;
+}
+
+.appShell :global(.new-chat-card:hover) { background: var(--rail-surface); }
+.appShell :global(.new-chat-card .plus) {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #fff;
+}
+
+.appShell :global(.new-chat-card small) { display: block; margin-top: 2px; color: var(--muted); }
+
+.appShell :global(.ghost-button),
+.appShell :global(.icon-button) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 7px 10px;
+}
+
+.appShell :global(.rail-heading) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 38px;
+  padding: 0 10px;
+}
+
+.appShell :global(.rail-heading > div) {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.appShell :global(.rail-heading strong) { font-size: 16px; font-weight: 650; }
+.appShell :global(.rail-heading span) { color: var(--rail-muted); font-size: 11px; }
+
+.appShell :global(.rail-search-button) {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--rail-muted);
+}
+
+.appShell :global(.rail-search-button:hover),
+.appShell :global(.rail-search-button.active) {
+  background: var(--rail-surface);
+  color: var(--rail-text);
+}
+
+.appShell :global(.search-card) { display: grid; gap: 7px; }
+.appShell :global(.search-input) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 1px solid var(--rail-border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--rail-surface) 52%, transparent);
+  color: var(--rail-muted);
+}
+
+.appShell :global(.search-input:focus-within) { border-color: #70706a; box-shadow: none; }
+.appShell :global(.search-input input) { width: 100%; border: 0; outline: 0; background: transparent; color: var(--rail-text); }
+.appShell :global(.search-input input::placeholder) { color: var(--rail-muted); }
+.appShell :global(.section-label) { padding: 8px 10px 2px; }
+
+.appShell :global(.conversation-list) {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 2px;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #55564d transparent;
+}
+
+.appShell :global(.conversation-row) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  gap: 4px;
+  border-radius: var(--radius-sm);
+}
+
+.appShell :global(.conversation-row.active) { background: #494941; }
+.appShell :global(.conversation) {
+  min-width: 0;
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--rail-text);
+  text-align: left;
+}
+
+.appShell :global(.conversation:hover) { background: #35362f; }
+.appShell :global(.conversation strong),
+.appShell :global(.conversation span) {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.appShell :global(.conversation strong) { font-size: 13px; font-weight: 520; line-height: 1.4; }
+.appShell :global(.conversation span) { margin-top: 2px; color: var(--rail-muted); font-size: 11px; }
+
+.appShell :global(.conversation-delete) {
+  width: 30px;
+  height: 30px;
+  margin: 3px 2px 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--rail-muted);
+  opacity: 0;
+}
+
+.appShell :global(.conversation-delete:hover) { background: #3b3b38; color: #fff; }
+.appShell :global(.conversation-row:hover .conversation-delete),
+.appShell :global(.conversation-row:focus-within .conversation-delete) { opacity: 1; }
+.appShell :global(.conversation-load-more) {
+  align-self: flex-start;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--rail-muted);
+  font: inherit;
+  font-size: 12px;
+  line-height: 28px;
+}
+
+.appShell :global(.conversation-load-more:hover:not(:disabled)) { color: var(--accent); }
+.appShell :global(.conversation-load-more:disabled) { cursor: wait; opacity: 0.65; }
+.appShell :global(.empty-note) { margin: 0; padding: 10px 8px; color: var(--rail-muted); font-size: 13px; }
+.appShell :global(.avatar) {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #3a3a37;
+  color: var(--rail-text);
+  font-weight: 700;
+}
+
+.appShell :global(.sidebar-footer-actions) { display: flex; align-items: center; gap: 4px; }
+.appShell :global(.sidebar-footer-actions .icon-button) {
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  border-color: var(--rail-border);
+  background: transparent;
+  color: var(--rail-muted);
+}
+
+.appShell :global(.sidebar-footer-actions .icon-button:hover) { background: #30302e; color: #fff; }
+
+.appShell :global(.main-stage) {
+  grid-column: 2;
+  min-width: 0;
+  min-height: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+.appShell :global(.topbar) {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex: 0 0 var(--topbar-h);
+  align-items: center;
+  justify-content: space-between;
+  height: var(--topbar-h);
+  padding: 0 22px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 97%, #202020);
+  backdrop-filter: blur(12px);
+}
+
+.appShell :global(.topbar-context),
+.appShell :global(.topbar-actions) { display: flex; align-items: center; gap: 6px; }
+.appShell :global(.topbar-context) { min-width: 0; }
+.appShell :global(.workspace-title) {
+  max-width: min(50vw, 620px);
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 620;
+}
+
+.appShell :global(.topbar-icon) {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+}
+
+.appShell :global(.topbar-icon:hover),
+.appShell :global(.topbar-icon.active) { background: var(--surface-2); color: var(--text); }
+.appShell :global(.topbar-icon.active) { color: var(--accent); }

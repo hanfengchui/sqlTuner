@@ -2,6 +2,7 @@ import { Bot, CheckCircle2, Clock3, KeyRound, Link2, Play, PlugZap, RefreshCw, S
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { ModelConfigView, ModelPreviewResult, ModelProviderOption, ModelTestResult, ReadinessView, RuntimeHealthView } from "../types/api";
+import styles from "./AdminPages.module.css";
 
 export function ModelConfigPage() {
   const [config, setConfig] = useState<ModelConfigView | undefined>();
@@ -116,7 +117,7 @@ export function ModelConfigPage() {
   }
 
   return (
-    <div className="admin-page model-page">
+    <div className={`${styles.adminPage} admin-page model-page`}>
       <header className="page-header-row">
         <div>
           <span>Model Gateway</span>

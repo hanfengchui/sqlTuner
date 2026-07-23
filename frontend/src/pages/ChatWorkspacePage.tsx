@@ -4,6 +4,7 @@ import { ConversationStream } from "../components/ConversationStream";
 import { SqlInputPanel, type SqlInputValue } from "../components/SqlInputPanel";
 import { useTaskUpdates } from "../hooks/useTaskUpdates";
 import type { ConversationTimeline, Message, SqlTuningTask } from "../types/api";
+import styles from "./ChatWorkspacePage.module.css";
 
 interface ChatWorkspacePageProps {
   activeConversationId?: number;
@@ -129,7 +130,7 @@ export function ChatWorkspacePage({ activeConversationId, activeTask, onTaskCrea
   }
 
   return (
-    <div className="workspace chat-workspace">
+    <div className={`${styles.chatWorkspace} workspace chat-workspace`}>
       <div className="chat-column">
         <ConversationStream
           messages={messages}

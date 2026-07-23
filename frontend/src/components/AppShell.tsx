@@ -14,6 +14,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Theme } from "../lib/useTheme";
 import type { Conversation, UserView } from "../types/api";
+import styles from "./AppShell.module.css";
 
 interface AppShellProps {
   user: UserView;
@@ -41,7 +42,7 @@ export function AppShell(props: AppShellProps) {
 
   return (
     <Tooltip.Provider delayDuration={250}>
-      <div className="app-shell">
+      <div className={`${styles.appShell} app-shell`}>
         <CommandRail {...props} />
         <main className="main-stage">
           <header className="topbar">

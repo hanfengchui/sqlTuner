@@ -2,6 +2,7 @@ import { FileCode2, Save, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { SkillVersion } from "../types/api";
+import styles from "./AdminPages.module.css";
 
 const MAX_SKILL_CONTENT_CHARS = 16 * 1024;
 
@@ -32,7 +33,7 @@ export function SkillAdminPage() {
   }
 
   return (
-    <div className="admin-page skill-admin-page">
+    <div className={`${styles.adminPage} admin-page skill-admin-page`}>
       <header>
         <span>Skills</span>
         <h1>SQL 调优技能</h1>

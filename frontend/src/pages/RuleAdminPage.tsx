@@ -2,6 +2,7 @@ import { ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { RuleFinding } from "../types/api";
+import styles from "./AdminPages.module.css";
 
 export function RuleAdminPage() {
   const [rules, setRules] = useState<RuleFinding[]>([]);
@@ -14,7 +15,7 @@ export function RuleAdminPage() {
   const visibleRules = severity === "ALL" ? rules : rules.filter((rule) => rule.severity === severity);
 
   return (
-    <div className="admin-page rule-admin-page">
+    <div className={`${styles.adminPage} admin-page rule-admin-page`}>
       <header>
         <span>Rules</span>
         <h1>确定性规则</h1>
