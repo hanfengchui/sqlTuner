@@ -1,0 +1,14 @@
+{
+  "enabledByDefault": false,
+  "enabledProperty": "sqltuner.eval.realModel.enabled",
+  "apiKeyEnv": "SQLTUNER_EVAL_API_KEY",
+  "provider": "openai",
+  "baseUrlEnv": "SQLTUNER_EVAL_BASE_URL",
+  "modelEnv": "SQLTUNER_EVAL_MODEL",
+  "defaultBaseUrl": "https://api.openai.com/v1",
+  "defaultModel": "gpt-4.1-mini",
+  "maxStandardTasks": 40,
+  "maxDeepTasks": 10,
+  "maxCallsPerTask": 2,
+  "repairEnabled": false
+}

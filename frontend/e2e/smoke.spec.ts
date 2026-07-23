@@ -18,16 +18,19 @@ test("workspace shell renders session search and composer", async ({ page }) => 
       json: { success: true, data: { id: 1, username: "admin", displayName: "Admin", role: "ADMIN" } }
     });
   });
-  await page.route("**/api/conversations", async (route) => {
+  await page.route("**/api/conversations/page**", async (route) => {
     await route.fulfill({
       json: {
         success: true,
-        data: [{ id: 1, userId: 1, title: "订单慢 SQL", createdAt: "2026-07-17T00:00:00Z", updatedAt: "2026-07-17T00:00:00Z" }]
+        data: {
+          items: [{ id: 1, userId: 1, title: "订单慢 SQL", createdAt: "2026-07-17T00:00:00Z", updatedAt: "2026-07-17T00:00:00Z" }],
+          hasMore: false
+        }
       }
     });
   });
-  await page.route("**/api/conversations/1/messages", async (route) => {
-    await route.fulfill({ json: { success: true, data: [] } });
+  await page.route("**/api/conversations/1/timeline**", async (route) => {
+    await route.fulfill({ json: { success: true, data: { items: [], hasMore: false } } });
   });
 
   await page.goto("/chat");
@@ -127,30 +130,105 @@ test("workspace renders concise validated advice inline in the conversation", as
       json: { success: true, data: { id: 1, username: "admin", displayName: "Admin", role: "ADMIN" } }
     });
   });
-  await page.route("**/api/conversations", async (route) => {
+  await page.route("**/api/conversations/page**", async (route) => {
     await route.fulfill({
       json: {
         success: true,
-        data: conversationTitles.map((title, index) => ({
-          id: index + 1,
-          userId: 1,
-          title,
-          createdAt: "2026-07-18T00:00:00Z",
-          updatedAt: `2026-07-18T00:${String(index).padStart(2, "0")}:00Z`
-        }))
+        data: {
+          items: conversationTitles.map((title, index) => ({
+            id: index + 1,
+            userId: 1,
+            title,
+            createdAt: "2026-07-18T00:00:00Z",
+            updatedAt: `2026-07-18T00:${String(index).padStart(2, "0")}:00Z`
+          })),
+          hasMore: false
+        }
       }
     });
   });
-  await page.route("**/api/conversations/1/messages", async (route) => {
+  const inlineTask = {
+    id: 7,
+    userId: 1,
+    conversationId: 1,
+    dbDialect: "OceanBase MySQL",
+    originalSql: "select * from orders where status = 'PAID' order by created_at desc",
+    runtimeMetricsText: "执行次数: 21.88\nCPU 占比: 41.7%\n平均耗时: 2008ms\n平均返回行数（报告结论内识别，待核验）: 1 行",
+    tableStatsText: "orders: 2294867 行",
+    deepAnalysis: false,
+    status: "DONE",
+    statusMessage: "调优建议已生成",
+    ruleFindings: [],
+    artifacts: [],
+    createdAt: "2026-07-18T00:00:00Z",
+    updatedAt: "2026-07-18T00:00:05Z",
+    result: {
+      outcome: "ADVICE",
+      summary: "当前查询可通过缩小投影列并验证排序访问路径来降低扫描成本。",
+      analysisNarrative: {
+        conclusion: "最终结论：先确认当前访问路径和索引覆盖情况；在没有计划证据前，不应直接把排序问题归因于索引缺失。",
+        sections: [
+          {
+            kind: "EVIDENCE",
+            title: "为什么先验证计划",
+            body: "- 现有输入可以确认筛选和排序结构。\n- 还不能确认实际扫描行数、排序算子或索引命中情况。",
+            evidenceRefs: ["E_EXPLAIN"]
+          },
+          {
+            kind: "ACTION",
+            title: "可先评估的改动",
+            body: "1. 先核对调用方实际使用的返回列。\n2. 若调用方不依赖全部列，在测试环境验证缩小投影列后的结果集和执行计划差异。",
+            evidenceRefs: ["E_EXPLAIN"]
+          },
+          {
+            kind: "VALIDATION",
+            title: "验证标准",
+            body: "- 对比改动前后的 EXPLAIN。\n- 确认排序访问路径和返回结果保持一致。\n- 用相同绑定变量比较扫描行数与响应时间。",
+            evidenceRefs: ["E_EXPLAIN"]
+          },
+          {
+            kind: "CAUTION",
+            title: "上线前注意",
+            body: "- 不要在缺少现有索引定义时直接创建重复索引。\n- 先在影子环境验证写入成本和结果集一致性。",
+            evidenceRefs: ["E_EXPLAIN"]
+          }
+        ]
+      },
+      evidenceCatalog: [{ id: "E_EXPLAIN", source: "USER_EXPLAIN", summary: "TABLE ACCESS BY INDEX", trustLevel: "HIGH" }],
+      diagnoses: [{ title: "SELECT * 扩大回表成本", impact: "返回列过多会增加 I/O" }],
+      rewriteCandidates: [{ sql: "select id, status, created_at from orders where status = ? order by created_at desc", change: "仅保留调用方实际使用的列" }],
+      indexCandidates: [{
+        tableName: "orders",
+        columnOrder: ["status", "created_at"],
+        ddl: "create index idx_orders_status_created on orders(status, created_at)",
+        benefit: "仅在确认当前索引不覆盖排序时评估"
+      }],
+      validationPlan: [{ action: "执行 EXPLAIN", expectedSignal: "确认排序是否命中现有索引" }],
+      missingInformation: [],
+      safetyWarnings: [],
+      findings: [],
+      rewriteSql: "",
+      indexSuggestions: [],
+      validationSteps: [],
+      riskWarnings: [],
+      needMoreInfo: [],
+      rawModelOutput: "",
+      mockModel: false
+    }
+  };
+  await page.route("**/api/conversations/1/timeline**", async (route) => {
     await route.fulfill({
       json: {
         success: true,
-        data: [
-          { id: -1, conversationId: 1, role: "USER", content: "先按现有信息判断这条查询最可能的瓶颈。", createdAt: "2026-07-17T23:58:00Z" },
-          { id: 0, conversationId: 1, role: "ASSISTANT", content: "上一轮已确认当前 SQL 的筛选和排序结构，但在没有执行计划与现有索引定义前，不能把耗时直接归因于索引缺失。", createdAt: "2026-07-17T23:59:00Z" },
-          { id: 1, conversationId: 1, role: "USER", content: pastedReport, taskId: 7, createdAt: "2026-07-18T00:00:00Z" },
-          { id: 2, conversationId: 1, role: "ASSISTANT", content: "当前查询可通过缩小投影列并验证排序访问路径来降低扫描成本。", taskId: 7, createdAt: "2026-07-18T00:00:05Z" }
-        ]
+        data: {
+          items: [
+            { message: { id: -1, conversationId: 1, role: "USER", content: "先按现有信息判断这条查询最可能的瓶颈。", createdAt: "2026-07-17T23:58:00Z" } },
+            { message: { id: 0, conversationId: 1, role: "ASSISTANT", content: "上一轮已确认当前 SQL 的筛选和排序结构，但在没有执行计划与现有索引定义前，不能把耗时直接归因于索引缺失。", createdAt: "2026-07-17T23:59:00Z" } },
+            { message: { id: 1, conversationId: 1, role: "USER", content: pastedReport, taskId: 7, createdAt: "2026-07-18T00:00:00Z" }, task: inlineTask },
+            { message: { id: 2, conversationId: 1, role: "ASSISTANT", content: "当前查询可通过缩小投影列并验证排序访问路径来降低扫描成本。", taskId: 7, createdAt: "2026-07-18T00:00:05Z" }, task: inlineTask }
+          ],
+          hasMore: false
+        }
       }
     });
   });
@@ -158,75 +236,7 @@ test("workspace renders concise validated advice inline in the conversation", as
     await route.fulfill({
       json: {
         success: true,
-        data: {
-          id: 7,
-          userId: 1,
-          conversationId: 1,
-          dbDialect: "OceanBase MySQL",
-          originalSql: "select * from orders where status = 'PAID' order by created_at desc",
-          runtimeMetricsText: "执行次数: 21.88\nCPU 占比: 41.7%\n平均耗时: 2008ms\n平均返回行数（报告结论内识别，待核验）: 1 行",
-          tableStatsText: "orders: 2294867 行",
-          deepAnalysis: false,
-          status: "DONE",
-          statusMessage: "调优建议已生成",
-          ruleFindings: [],
-          artifacts: [],
-          createdAt: "2026-07-18T00:00:00Z",
-          updatedAt: "2026-07-18T00:00:05Z",
-          result: {
-            outcome: "ADVICE",
-            summary: "当前查询可通过缩小投影列并验证排序访问路径来降低扫描成本。",
-            analysisNarrative: {
-              conclusion: "最终结论：先确认当前访问路径和索引覆盖情况；在没有计划证据前，不应直接把排序问题归因于索引缺失。",
-              sections: [
-                {
-                  kind: "EVIDENCE",
-                  title: "为什么先验证计划",
-                  body: "- 现有输入可以确认筛选和排序结构。\n- 还不能确认实际扫描行数、排序算子或索引命中情况。",
-                  evidenceRefs: ["E_EXPLAIN"]
-                },
-                {
-                  kind: "ACTION",
-                  title: "可先评估的改动",
-                  body: "1. 先核对调用方实际使用的返回列。\n2. 若调用方不依赖全部列，在测试环境验证缩小投影列后的结果集和执行计划差异。",
-                  evidenceRefs: ["E_EXPLAIN"]
-                },
-                {
-                  kind: "VALIDATION",
-                  title: "验证标准",
-                  body: "- 对比改动前后的 EXPLAIN。\n- 确认排序访问路径和返回结果保持一致。\n- 用相同绑定变量比较扫描行数与响应时间。",
-                  evidenceRefs: ["E_EXPLAIN"]
-                },
-                {
-                  kind: "CAUTION",
-                  title: "上线前注意",
-                  body: "- 不要在缺少现有索引定义时直接创建重复索引。\n- 先在影子环境验证写入成本和结果集一致性。",
-                  evidenceRefs: ["E_EXPLAIN"]
-                }
-              ]
-            },
-            evidenceCatalog: [{ id: "E_EXPLAIN", source: "USER_EXPLAIN", summary: "TABLE ACCESS BY INDEX", trustLevel: "HIGH" }],
-            diagnoses: [{ title: "SELECT * 扩大回表成本", impact: "返回列过多会增加 I/O" }],
-            rewriteCandidates: [{ sql: "select id, status, created_at from orders where status = ? order by created_at desc", change: "仅保留调用方实际使用的列" }],
-            indexCandidates: [{
-              tableName: "orders",
-              columnOrder: ["status", "created_at"],
-              ddl: "create index idx_orders_status_created on orders(status, created_at)",
-              benefit: "仅在确认当前索引不覆盖排序时评估"
-            }],
-            validationPlan: [{ action: "执行 EXPLAIN", expectedSignal: "确认排序是否命中现有索引" }],
-            missingInformation: [],
-            safetyWarnings: [],
-            findings: [],
-            rewriteSql: "",
-            indexSuggestions: [],
-            validationSteps: [],
-            riskWarnings: [],
-            needMoreInfo: [],
-            rawModelOutput: "",
-            mockModel: false
-          }
-        }
+        data: inlineTask
       }
     });
   });
@@ -266,8 +276,8 @@ test("model gateway discovers OpenAI-compatible models and keeps custom input", 
       json: { success: true, data: { id: 1, username: "admin", displayName: "Admin", role: "ADMIN" } }
     });
   });
-  await page.route("**/api/conversations", async (route) => {
-    await route.fulfill({ json: { success: true, data: [] } });
+  await page.route("**/api/conversations/page**", async (route) => {
+    await route.fulfill({ json: { success: true, data: { items: [], hasMore: false } } });
   });
   await page.route("**/api/admin/model-providers", async (route) => {
     await route.fulfill({
