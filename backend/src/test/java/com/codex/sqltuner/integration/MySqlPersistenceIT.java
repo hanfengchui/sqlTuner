@@ -211,7 +211,8 @@ class MySqlPersistenceIT {
         dataSource.setDriverClassName(mysql.getDriverClassName());
         dataSource.setUrl("jdbc:mysql://" + mysql.getHost() + ":" + mysql.getMappedPort(3306) + "/"
                 + databaseName + "?useSSL=false&allowPublicKeyRetrieval=true");
-        dataSource.setUsername(mysql.getUsername());
+        // Each test provisions an isolated database, so run its migrations with the container administrator.
+        dataSource.setUsername("root");
         dataSource.setPassword(mysql.getPassword());
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load().migrate();
