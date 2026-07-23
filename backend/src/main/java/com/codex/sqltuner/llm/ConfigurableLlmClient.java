@@ -1,5 +1,6 @@
 package com.codex.sqltuner.llm;
 
+import com.codex.sqltuner.config.ModelEndpointPolicy;
 import com.codex.sqltuner.config.QueueProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -52,22 +53,38 @@ public class ConfigurableLlmClient implements LlmClient {
     private final Semaphore llmSlots;
     private final LlmProperties properties;
     private final ObjectMapper objectMapper;
+    private final ModelEndpointPolicy endpointPolicy;
     private final RestTemplate restTemplate;
     private final HttpComponentsClientHttpRequestFactory requestFactory;
     private final ThreadLocal<Integer> activeCallTimeoutMs = new ThreadLocal<Integer>();
 
     public ConfigurableLlmClient(LlmProperties properties, ObjectMapper objectMapper) {
-        this(properties, objectMapper, 4);
+        this(properties, objectMapper, 4, new ModelEndpointPolicy(false));
     }
 
     @Autowired
+    public ConfigurableLlmClient(LlmProperties properties,
+                                 ObjectMapper objectMapper,
+                                 QueueProperties queueProperties,
+                                 ModelEndpointPolicy endpointPolicy) {
+        this(properties, objectMapper, Math.max(1, queueProperties.getMaxRunning()), endpointPolicy);
+    }
+
     public ConfigurableLlmClient(LlmProperties properties, ObjectMapper objectMapper, QueueProperties queueProperties) {
-        this(properties, objectMapper, Math.max(1, queueProperties.getMaxRunning()));
+        this(properties, objectMapper, Math.max(1, queueProperties.getMaxRunning()), new ModelEndpointPolicy(false));
     }
 
     private ConfigurableLlmClient(LlmProperties properties, ObjectMapper objectMapper, int maxConcurrentLlm) {
+        this(properties, objectMapper, maxConcurrentLlm, new ModelEndpointPolicy(false));
+    }
+
+    private ConfigurableLlmClient(LlmProperties properties,
+                                  ObjectMapper objectMapper,
+                                  int maxConcurrentLlm,
+                                  ModelEndpointPolicy endpointPolicy) {
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.endpointPolicy = endpointPolicy;
         this.maxConcurrentLlm = maxConcurrentLlm;
         this.llmSlots = new Semaphore(maxConcurrentLlm, true);
         this.requestFactory = buildRequestFactory();
@@ -126,10 +143,7 @@ public class ConfigurableLlmClient implements LlmClient {
             headers.setContentType(MediaType.APPLICATION_JSON);
             // API Key 只通过环境变量进入后端，请求日志禁止输出 Authorization。
             headers.setBearerAuth(properties.getApiKey());
-            String url = properties.getBaseUrl();
-            if (url != null && !url.endsWith("/chat/completions")) {
-                url = url.replaceAll("/+$", "") + "/chat/completions";
-            }
+            String url = endpointPolicy.chatCompletionsEndpoint(provider, properties.getBaseUrl(), properties.getApiKeyBinding());
             if (streamEnabled) {
                 String content = streamAnalyze(url, headers, body, listener, start, callTimeoutMs);
                 log.info("analyze response 响应: status: streamed, elapsedMs: {}, contentLength: {}",
@@ -604,7 +618,9 @@ public class ConfigurableLlmClient implements LlmClient {
         CloseableHttpClient client = HttpClients.custom()
                 .setConnectionManager(connectionManager)
                 .setDefaultRequestConfig(config)
+                .setDnsResolver(endpointPolicy.dnsResolver())
                 .disableCookieManagement()
+                .disableRedirectHandling()
                 .evictIdleConnections(30, TimeUnit.SECONDS)
                 .build();
         return new HttpComponentsClientHttpRequestFactory(client);

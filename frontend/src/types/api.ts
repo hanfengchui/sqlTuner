@@ -310,11 +310,16 @@ export interface RuntimeHealthView {
   model: string;
   mockState: "mock" | "ready" | "missing-key" | string;
   apiKeyConfigured: boolean;
+  mysql?: string;
+  scheduler?: string;
+  queued?: number;
+  running?: number;
+  retentionEnabled?: boolean;
+  retentionDays?: number;
 }
 
 export interface ReadinessView {
   status: string;
   mysql?: string;
-  queued?: number;
-  running?: number;
+  scheduler?: string;
 }

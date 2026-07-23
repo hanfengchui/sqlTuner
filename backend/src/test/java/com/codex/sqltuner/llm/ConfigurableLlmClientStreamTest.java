@@ -242,6 +242,7 @@ class ConfigurableLlmClientStreamTest {
         properties.setProvider("openai");
         properties.setApiKey("test-key");
         properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
+        properties.setApiKeyBinding("openai@127.0.0.1");
         properties.setModel("test-model");
         properties.setTimeoutMs(5000);
         return new ConfigurableLlmClient(properties, new ObjectMapper());

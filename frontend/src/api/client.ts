@@ -43,7 +43,7 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
       ...(options.headers || {})
     }
   });
-  const payload = (await response.json()) as ApiResponse<T> & { code?: string; requestId?: string; details?: unknown };
+  const payload = await readApiPayload<T>(response);
   if (!response.ok || !payload.success) {
     const message = payload.code ? `${payload.code}: ${payload.message || "请求失败"}` : payload.message || "请求失败";
     throw new Error(payload.requestId ? `${message} (${payload.requestId})` : message);
@@ -53,9 +53,32 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
 
 async function loadCsrfToken() {
   const response = await fetch("/api/auth/csrf", { credentials: "include" });
-  const payload = (await response.json()) as ApiResponse<{ headerName?: string; token?: string }>;
+  const payload = await readApiPayload<{ headerName?: string; token?: string }>(response);
+  if (!response.ok || !payload.success) {
+    const message = payload.code ? `${payload.code}: ${payload.message || "请求失败"}` : payload.message || "请求失败";
+    throw new Error(payload.requestId ? `${message} (${payload.requestId})` : message);
+  }
   csrfHeaderName = payload.data?.headerName || csrfHeaderName;
   csrfToken = payload.data?.token || readCookie("XSRF-TOKEN");
+}
+
+async function readApiPayload<T>(response: Response): Promise<ApiResponse<T> & { code?: string; requestId?: string; details?: unknown }> {
+  const body = await response.text();
+  if (!body || !body.trim()) {
+    throw new Error(response.ok ? "服务返回空响应" : gatewayMessage(response.status));
+  }
+  try {
+    return JSON.parse(body) as ApiResponse<T> & { code?: string; requestId?: string; details?: unknown };
+  } catch (_) {
+    throw new Error(response.ok ? "服务返回了非 JSON 响应" : gatewayMessage(response.status));
+  }
+}
+
+function gatewayMessage(status: number) {
+  if (status === 502 || status === 503 || status === 504) {
+    return `HTTP ${status}: 服务网关暂时不可用`;
+  }
+  return `HTTP ${status}: 服务返回非 JSON 响应`;
 }
 
 function readCookie(name: string) {

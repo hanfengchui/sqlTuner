@@ -6,6 +6,7 @@ public class ModelConfigRecord {
     private String model;
     private String visionModel;
     private String apiKey;
+    private String apiKeyBinding;
     private Integer timeoutMs;
 
     public ModelConfigRecord() {
@@ -65,5 +66,13 @@ public class ModelConfigRecord {
 
     public void setApiKey(String apiKey) {
         this.apiKey = apiKey;
+    }
+
+    public String getApiKeyBinding() {
+        return apiKeyBinding;
+    }
+
+    public void setApiKeyBinding(String apiKeyBinding) {
+        this.apiKeyBinding = apiKeyBinding;
     }
 }

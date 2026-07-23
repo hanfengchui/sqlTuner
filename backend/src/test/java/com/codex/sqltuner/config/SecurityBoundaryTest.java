@@ -1,5 +1,7 @@
 package com.codex.sqltuner.config;
 
+import com.codex.sqltuner.auth.AdminUserController;
+import com.codex.sqltuner.auth.AdminUserView;
 import com.codex.sqltuner.auth.AuthController;
 import com.codex.sqltuner.auth.AuthService;
 import com.codex.sqltuner.auth.UserAccount;
@@ -43,6 +45,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(controllers = {
         AdminConfigController.class,
+        AdminUserController.class,
         AuthController.class,
         ConversationController.class,
         TuningController.class
@@ -57,6 +60,9 @@ class SecurityBoundaryTest {
 
     @MockBean
     private ModelConfigService modelConfigService;
+
+    @MockBean
+    private AdminRuntimeHealthService adminRuntimeHealthService;
 
     @MockBean
     private AuthService authService;
@@ -145,6 +151,21 @@ class SecurityBoundaryTest {
     }
 
     @Test
+    void administratorCanListUsersButRegularUserCannot() throws Exception {
+        MockHttpSession adminSession = session(UserRole.ADMIN);
+        when(authService.listUsers()).thenReturn(Collections.singletonList(
+                new AdminUserView(2L, "user", "User", UserRole.USER, true)));
+
+        mockMvc.perform(get("/api/admin/users").session(adminSession))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].username").value("user"));
+
+        mockMvc.perform(get("/api/admin/users").session(session(UserRole.USER)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
+    @Test
     void regularUserCanUseConversationAndTuningApis() throws Exception {
         MockHttpSession session = session(UserRole.USER);
         when(conversationRepository.listByUser(2L)).thenReturn(Collections.emptyList());
@@ -179,8 +200,10 @@ class SecurityBoundaryTest {
 
     @Test
     void loginSessionCanAccessProtectedEndpointOnTheNextRequest() throws Exception {
-        when(authService.login("admin", "strong-password"))
-                .thenReturn(new UserAccount(1L, "admin", "Admin", "", UserRole.ADMIN));
+        UserAccount admin = new UserAccount(1L, "admin", "Admin", "", UserRole.ADMIN);
+        when(authService.login(eq("admin"), eq("strong-password"), any()))
+                .thenReturn(admin);
+        when(authService.requireActiveAccount(1L)).thenReturn(admin);
 
         MvcResult csrfResult = mockMvc.perform(get("/api/auth/csrf"))
                 .andExpect(status().isOk())
@@ -227,8 +250,9 @@ class SecurityBoundaryTest {
     private MockHttpSession session(UserRole role) {
         MockHttpSession session = new MockHttpSession();
         long userId = role == UserRole.ADMIN ? 1L : 2L;
-        session.setAttribute(AuthService.SESSION_USER,
-                new UserAccount(userId, role.name().toLowerCase(), role.name(), null, role));
+        UserAccount account = new UserAccount(userId, role.name().toLowerCase(), role.name(), null, role);
+        session.setAttribute(AuthService.SESSION_USER, account);
+        when(authService.requireActiveAccount(userId)).thenReturn(account);
         return session;
     }
 

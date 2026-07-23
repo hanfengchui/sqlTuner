@@ -30,9 +30,10 @@ public class AuthController {
                                        HttpSession session,
                                        HttpServletRequest servletRequest) {
         log.info("login param 入参: username: {}", request.getUsername());
-        UserAccount account = authService.login(request.getUsername(), request.getPassword());
+        UserAccount account = authService.login(request.getUsername(), request.getPassword(), clientIp(servletRequest));
         servletRequest.changeSessionId();
         session.setAttribute(AuthService.SESSION_USER, account);
+        authService.registerSession(account, session);
         return ApiResponse.ok(UserView.from(account));
     }
 
@@ -40,6 +41,9 @@ public class AuthController {
     public ApiResponse<Boolean> logout(HttpSession session) {
         Object account = session.getAttribute(AuthService.SESSION_USER);
         log.info("logout param 入参: user: {}", account == null ? "anonymous" : ((UserAccount) account).getUsername());
+        if (account instanceof UserAccount) {
+            authService.unregisterSession((UserAccount) account, session);
+        }
         session.invalidate();
         return ApiResponse.ok(Boolean.TRUE);
     }
@@ -64,5 +68,10 @@ public class AuthController {
             body.put("token", token.getToken());
         }
         return ApiResponse.ok(body);
+    }
+
+    private String clientIp(HttpServletRequest request) {
+        String remoteAddr = request.getRemoteAddr();
+        return remoteAddr == null || remoteAddr.trim().isEmpty() ? "unknown" : remoteAddr.trim();
     }
 }

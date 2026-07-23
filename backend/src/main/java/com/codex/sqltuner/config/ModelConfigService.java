@@ -3,9 +3,11 @@ package com.codex.sqltuner.config;
 import com.codex.sqltuner.llm.LlmClient;
 import com.codex.sqltuner.llm.LlmRequest;
 import com.codex.sqltuner.llm.LlmResponse;
+import com.codex.sqltuner.common.ApiException;
 import com.codex.sqltuner.storage.CryptoSupport;
 import com.codex.sqltuner.storage.ModelConfigRecord;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.sql.ResultSet;
@@ -21,17 +23,29 @@ public class ModelConfigService {
     private final LlmClient llmClient;
     private final CryptoSupport cryptoSupport;
     private final ModelCatalogClient modelCatalogClient;
+    private final ModelEndpointPolicy endpointPolicy;
 
     public ModelConfigService(JdbcTemplate jdbcTemplate,
                               com.codex.sqltuner.llm.LlmProperties llmProperties,
                               LlmClient llmClient,
                               CryptoSupport cryptoSupport,
                               ModelCatalogClient modelCatalogClient) {
+        this(jdbcTemplate, llmProperties, llmClient, cryptoSupport, modelCatalogClient, new ModelEndpointPolicy(false));
+    }
+
+    @Autowired
+    public ModelConfigService(JdbcTemplate jdbcTemplate,
+                              com.codex.sqltuner.llm.LlmProperties llmProperties,
+                              LlmClient llmClient,
+                              CryptoSupport cryptoSupport,
+                              ModelCatalogClient modelCatalogClient,
+                              ModelEndpointPolicy endpointPolicy) {
         this.jdbcTemplate = jdbcTemplate;
         this.llmProperties = llmProperties;
         this.llmClient = llmClient;
         this.cryptoSupport = cryptoSupport;
         this.modelCatalogClient = modelCatalogClient;
+        this.endpointPolicy = endpointPolicy;
     }
 
     public ModelConfigView view() {
@@ -74,7 +88,10 @@ public class ModelConfigService {
                         if (cryptoSupport.isEncrypted(encrypted) && decrypted == null) {
                             throw new IllegalStateException("SQL_TUNER_DATA_KEY 无法解密数据库中的模型 API Key");
                         }
-                        record.setApiKey(decrypted);
+                        record.setApiKeyBinding(rs.getString("api_key_binding"));
+                        if (hasText(decrypted) && apiKeyBindingMatches(record)) {
+                            record.setApiKey(decrypted);
+                        }
                         return record;
                     }
                 });
@@ -94,6 +111,8 @@ public class ModelConfigService {
 
     public ModelConfigView update(final ModelConfigUpdateRequest request) {
         ModelConfigRecord record = runtime();
+        String originalApiKey = record.getApiKey();
+        String originalBinding = record.getApiKeyBinding();
         if (request.getProvider() != null && !request.getProvider().trim().isEmpty()) {
             record.setProvider(request.getProvider().trim());
         }
@@ -112,13 +131,35 @@ public class ModelConfigService {
         if (request.getTimeoutMs() != null && request.getTimeoutMs() > 0) {
             record.setTimeoutMs(request.getTimeoutMs());
         }
+        boolean apiKeySupplied = request.getApiKey() != null && !request.getApiKey().trim().isEmpty();
+        ModelEndpointPolicy.Endpoint endpoint = null;
+        if (!"mock".equalsIgnoreCase(record.getProvider())) {
+            endpoint = endpointPolicy.normalizeBaseUrl(record.getProvider(), record.getBaseUrl());
+            record.setBaseUrl(endpoint.getBaseUrl());
+            if (apiKeySupplied) {
+                record.setApiKeyBinding(endpoint.getApiKeyBinding());
+            } else if (hasText(originalApiKey)) {
+                if (!hasText(originalBinding) || !endpoint.getApiKeyBinding().equals(originalBinding.trim())) {
+                    throw new ApiException(400, "MODEL_API_KEY_REBIND_REQUIRED", "Base URL 主机变更后必须重新填写模型 API Key");
+                }
+                record.setApiKeyBinding(originalBinding.trim());
+            } else {
+                record.setApiKeyBinding(null);
+            }
+        } else {
+            record.setApiKeyBinding(null);
+            if (!apiKeySupplied) {
+                record.setApiKey(null);
+            }
+        }
         jdbcTemplate.update(
-                "UPDATE model_config SET provider = ?, base_url = ?, model = ?, vision_model = ?, encrypted_api_key = ?, timeout_ms = ?, updated_at = ? WHERE id = 1",
+                "UPDATE model_config SET provider = ?, base_url = ?, model = ?, vision_model = ?, encrypted_api_key = ?, api_key_binding = ?, timeout_ms = ?, updated_at = ? WHERE id = 1",
                 record.getProvider(),
                 record.getBaseUrl(),
                 record.getModel(),
                 hasText(record.getVisionModel()) ? record.getVisionModel() : record.getModel(),
                 record.getApiKey() == null || record.getApiKey().trim().isEmpty() ? null : cryptoSupport.encrypt(record.getApiKey().trim()),
+                record.getApiKeyBinding(),
                 record.getTimeoutMs(),
                 Timestamp.valueOf(LocalDateTime.now()));
         llmProperties.apply(record);
@@ -128,7 +169,20 @@ public class ModelConfigService {
     public ModelCatalogView discoverModels(ModelCatalogRequest request) {
         ModelConfigRecord record = runtime();
         String baseUrl = request != null && hasText(request.getBaseUrl()) ? request.getBaseUrl().trim() : record.getBaseUrl();
-        String apiKey = request != null && hasText(request.getApiKey()) ? request.getApiKey().trim() : record.getApiKey();
+        String apiKey;
+        if (request != null && hasText(request.getApiKey())) {
+            apiKey = request.getApiKey().trim();
+            if (hasText(baseUrl)) {
+                baseUrl = endpointPolicy.normalizeBaseUrl(record.getProvider(), baseUrl).getBaseUrl();
+            }
+        } else if (hasText(record.getApiKey())) {
+            ModelEndpointPolicy.Endpoint endpoint = endpointPolicy.normalizeBaseUrl(record.getProvider(), baseUrl);
+            endpointPolicy.requireApiKeyBinding(endpoint, record.getApiKeyBinding());
+            baseUrl = endpoint.getBaseUrl();
+            apiKey = record.getApiKey();
+        } else {
+            apiKey = "";
+        }
         int timeoutMs = record.getTimeoutMs() == null ? 10000 : record.getTimeoutMs();
         return modelCatalogClient.discover(baseUrl, apiKey, timeoutMs);
     }
@@ -190,7 +244,22 @@ public class ModelConfigService {
     }
 
     private boolean hasApiKey(ModelConfigRecord record) {
-        return record.getApiKey() != null && !record.getApiKey().trim().isEmpty();
+        return record.getApiKey() != null && !record.getApiKey().trim().isEmpty() && apiKeyBindingMatches(record);
+    }
+
+    private boolean apiKeyBindingMatches(ModelConfigRecord record) {
+        if (!hasText(record.getApiKeyBinding())) {
+            return false;
+        }
+        if ("mock".equalsIgnoreCase(record.getProvider())) {
+            return true;
+        }
+        try {
+            ModelEndpointPolicy.Endpoint endpoint = endpointPolicy.normalizeBaseUrl(record.getProvider(), record.getBaseUrl());
+            return endpoint.getApiKeyBinding().equals(record.getApiKeyBinding().trim());
+        } catch (ApiException e) {
+            return false;
+        }
     }
 
     private String mockState(ModelConfigRecord record) {

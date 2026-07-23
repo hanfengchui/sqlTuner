@@ -160,7 +160,7 @@ export function ModelConfigPage() {
             <div>
               <PlugZap size={16} />
               <span>Queue</span>
-              <strong>{readiness ? `${readiness.running || 0} running / ${readiness.queued || 0} queued` : "未读取"}</strong>
+              <strong>{runtimeHealth ? `${runtimeHealth.running || 0} running / ${runtimeHealth.queued || 0} queued` : "未读取"}</strong>
             </div>
             <div>
               <CheckCircle2 size={16} />

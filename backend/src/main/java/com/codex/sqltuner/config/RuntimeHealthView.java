@@ -5,6 +5,12 @@ public class RuntimeHealthView {
     private String model;
     private String mockState;
     private boolean apiKeyConfigured;
+    private String mysql;
+    private String scheduler;
+    private int queued;
+    private int running;
+    private boolean retentionEnabled;
+    private int retentionDays;
 
     public RuntimeHealthView() {
     }
@@ -46,5 +52,53 @@ public class RuntimeHealthView {
 
     public void setApiKeyConfigured(boolean apiKeyConfigured) {
         this.apiKeyConfigured = apiKeyConfigured;
+    }
+
+    public String getMysql() {
+        return mysql;
+    }
+
+    public void setMysql(String mysql) {
+        this.mysql = mysql;
+    }
+
+    public String getScheduler() {
+        return scheduler;
+    }
+
+    public void setScheduler(String scheduler) {
+        this.scheduler = scheduler;
+    }
+
+    public int getQueued() {
+        return queued;
+    }
+
+    public void setQueued(int queued) {
+        this.queued = queued;
+    }
+
+    public int getRunning() {
+        return running;
+    }
+
+    public void setRunning(int running) {
+        this.running = running;
+    }
+
+    public boolean isRetentionEnabled() {
+        return retentionEnabled;
+    }
+
+    public void setRetentionEnabled(boolean retentionEnabled) {
+        this.retentionEnabled = retentionEnabled;
+    }
+
+    public int getRetentionDays() {
+        return retentionDays;
+    }
+
+    public void setRetentionDays(int retentionDays) {
+        this.retentionDays = retentionDays;
     }
 }

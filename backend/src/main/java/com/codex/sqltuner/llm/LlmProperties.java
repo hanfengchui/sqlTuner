@@ -11,7 +11,9 @@ public class LlmProperties {
     private String model = "qwen-plus";
     private String visionModel = "qwen3-vl-plus";
     private String apiKey;
+    private String apiKeyBinding;
     private String reasoningEffort;
+    private boolean endpointPolicyProduction = true;
     private int timeoutMs = 30000;
     private int connectTimeoutMs = 10000;
     private int readTimeoutMs = 30000;
@@ -61,12 +63,28 @@ public class LlmProperties {
         this.apiKey = apiKey;
     }
 
+    public String getApiKeyBinding() {
+        return apiKeyBinding;
+    }
+
+    public void setApiKeyBinding(String apiKeyBinding) {
+        this.apiKeyBinding = apiKeyBinding;
+    }
+
     public String getReasoningEffort() {
         return reasoningEffort;
     }
 
     public void setReasoningEffort(String reasoningEffort) {
         this.reasoningEffort = reasoningEffort;
+    }
+
+    public boolean isEndpointPolicyProduction() {
+        return endpointPolicyProduction;
+    }
+
+    public void setEndpointPolicyProduction(boolean endpointPolicyProduction) {
+        this.endpointPolicyProduction = endpointPolicyProduction;
     }
 
     public int getTimeoutMs() {
@@ -153,6 +171,10 @@ public class LlmProperties {
         }
         if (record.getApiKey() != null && !record.getApiKey().trim().isEmpty()) {
             this.apiKey = record.getApiKey();
+            this.apiKeyBinding = record.getApiKeyBinding();
+        } else {
+            this.apiKey = null;
+            this.apiKeyBinding = null;
         }
         if (record.getTimeoutMs() != null && record.getTimeoutMs() > 0) {
             this.timeoutMs = record.getTimeoutMs();

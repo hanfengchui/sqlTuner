@@ -104,3 +104,19 @@ describe("task EventSource protocol", () => {
     stop();
   });
 });
+
+describe("API response decoding", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("turns an HTML gateway error into a stable user-facing error", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("<html>bad gateway</html>", { status: 502 })));
+
+    await expect(api.me()).rejects.toThrow("HTTP 502: 服务网关暂时不可用");
+  });
+
+  it("does not attempt JSON parsing for an empty upstream response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("", { status: 503 })));
+
+    await expect(api.me()).rejects.toThrow("HTTP 503: 服务网关暂时不可用");
+  });
+});

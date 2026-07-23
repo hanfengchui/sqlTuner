@@ -52,6 +52,7 @@ class ConfigurableLlmClientMockFailTest {
         properties.setProvider("dashscope");
         properties.setBaseUrl("http://127.0.0.1:9/no-such-server");
         properties.setApiKey("fake-key");
+        properties.setApiKeyBinding("dashscope@127.0.0.1");
         properties.setTimeoutMs(500);
         ConfigurableLlmClient client = new ConfigurableLlmClient(properties, objectMapper);
 

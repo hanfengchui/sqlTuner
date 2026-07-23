@@ -22,16 +22,19 @@ import java.util.List;
 public class AdminConfigController {
     private static final Logger log = LoggerFactory.getLogger(AdminConfigController.class);
     private final ModelConfigService modelConfigService;
+    private final AdminRuntimeHealthService adminRuntimeHealthService;
 
-    public AdminConfigController(ModelConfigService modelConfigService) {
+    public AdminConfigController(ModelConfigService modelConfigService,
+                                 AdminRuntimeHealthService adminRuntimeHealthService) {
         this.modelConfigService = modelConfigService;
+        this.adminRuntimeHealthService = adminRuntimeHealthService;
     }
 
     @GetMapping("/health")
     public ApiResponse<RuntimeHealthView> health(HttpSession session) {
         CurrentUser.requireAdmin(session);
         log.info("health param 入参: admin: true");
-        return ApiResponse.ok(modelConfigService.healthView());
+        return ApiResponse.ok(adminRuntimeHealthService.view());
     }
 
     @GetMapping("/model-config")

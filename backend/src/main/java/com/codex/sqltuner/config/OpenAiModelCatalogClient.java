@@ -3,15 +3,17 @@ package com.codex.sqltuner.config;
 import com.codex.sqltuner.common.ApiException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.http.client.config.RequestConfig;
+import org.apache.http.impl.client.HttpClients;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
-import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -22,18 +24,34 @@ import java.util.Set;
 public class OpenAiModelCatalogClient implements ModelCatalogClient {
     private static final int MAX_MODELS = 500;
     private final ObjectMapper objectMapper;
+    private final ModelEndpointPolicy endpointPolicy;
 
     public OpenAiModelCatalogClient(ObjectMapper objectMapper) {
+        this(objectMapper, new ModelEndpointPolicy(false));
+    }
+
+    @Autowired
+    public OpenAiModelCatalogClient(ObjectMapper objectMapper, ModelEndpointPolicy endpointPolicy) {
         this.objectMapper = objectMapper;
+        this.endpointPolicy = endpointPolicy;
     }
 
     @Override
     public ModelCatalogView discover(String baseUrl, String apiKey, int timeoutMs) {
         String endpoint = modelsEndpoint(baseUrl);
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         int boundedTimeout = Math.max(1000, Math.min(timeoutMs, 15000));
-        factory.setConnectTimeout(boundedTimeout);
-        factory.setReadTimeout(boundedTimeout);
+        RequestConfig requestConfig = RequestConfig.custom()
+                .setConnectTimeout(boundedTimeout)
+                .setSocketTimeout(boundedTimeout)
+                .setConnectionRequestTimeout(boundedTimeout)
+                .build();
+        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(
+                HttpClients.custom()
+                        .setDefaultRequestConfig(requestConfig)
+                        .setDnsResolver(endpointPolicy.dnsResolver())
+                        .disableCookieManagement()
+                        .disableRedirectHandling()
+                        .build());
         RestTemplate restTemplate = new RestTemplate(factory);
 
         HttpHeaders headers = new HttpHeaders();
@@ -59,26 +77,7 @@ public class OpenAiModelCatalogClient implements ModelCatalogClient {
     }
 
     String modelsEndpoint(String baseUrl) {
-        if (!hasText(baseUrl)) {
-            throw new ApiException(400, "MODEL_BASE_URL_REQUIRED", "请先填写 OpenAI-compatible Base URL");
-        }
-        String normalized = baseUrl.trim().replaceAll("/+$", "");
-        if (normalized.endsWith("/chat/completions")) {
-            normalized = normalized.substring(0, normalized.length() - "/chat/completions".length());
-        }
-        String endpoint = normalized.endsWith("/models") ? normalized : normalized + "/models";
-        URI uri;
-        try {
-            uri = URI.create(endpoint);
-        } catch (IllegalArgumentException e) {
-            throw new ApiException(400, "MODEL_BASE_URL_INVALID", "Base URL 不是合法地址");
-        }
-        String scheme = uri.getScheme();
-        if (scheme == null || uri.getHost() == null
-                || !("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))) {
-            throw new ApiException(400, "MODEL_BASE_URL_INVALID", "Base URL 仅支持 http 或 https 地址");
-        }
-        return endpoint;
+        return endpointPolicy.modelsEndpoint("openai-compatible", baseUrl);
     }
 
     List<String> extractModels(String responseBody) throws Exception {

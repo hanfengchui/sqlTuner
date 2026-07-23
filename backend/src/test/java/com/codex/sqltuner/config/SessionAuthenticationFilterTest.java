@@ -16,6 +16,8 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import java.util.Collections;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class SessionAuthenticationFilterTest {
     @AfterEach
@@ -28,12 +30,14 @@ class SessionAuthenticationFilterTest {
         UserAccount account = new UserAccount(1L, "admin", "Admin", "", UserRole.ADMIN);
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.getSession().setAttribute(AuthService.SESSION_USER, account);
+        AuthService authService = mock(AuthService.class);
+        when(authService.requireActiveAccount(1L)).thenReturn(account);
         SecurityContextHolder.getContext().setAuthentication(new AnonymousAuthenticationToken(
                 "anonymous-key",
                 "anonymousUser",
                 Collections.singletonList(new SimpleGrantedAuthority("ROLE_ANONYMOUS"))));
 
-        new SessionAuthenticationFilter().doFilter(
+        new SessionAuthenticationFilter(authService).doFilter(
                 request,
                 new MockHttpServletResponse(),
                 new MockFilterChain());
@@ -49,17 +53,35 @@ class SessionAuthenticationFilterTest {
         UserAccount account = new UserAccount(1L, "admin", "Admin", "", UserRole.ADMIN);
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.getSession().setAttribute(AuthService.SESSION_USER, account);
+        AuthService authService = mock(AuthService.class);
         UsernamePasswordAuthenticationToken existing = new UsernamePasswordAuthenticationToken(
                 "upstream-user",
                 null,
                 Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER")));
         SecurityContextHolder.getContext().setAuthentication(existing);
 
-        new SessionAuthenticationFilter().doFilter(
+        new SessionAuthenticationFilter(authService).doFilter(
                 request,
                 new MockHttpServletResponse(),
                 new MockFilterChain());
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isSameAs(existing);
+    }
+
+    @Test
+    void invalidatesSessionWhenDatabaseNoLongerHasActiveUser() throws Exception {
+        UserAccount account = new UserAccount(2L, "user", "User", "", UserRole.USER);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.getSession().setAttribute(AuthService.SESSION_USER, account);
+        AuthService authService = mock(AuthService.class);
+        when(authService.requireActiveAccount(2L)).thenReturn(null);
+
+        new SessionAuthenticationFilter(authService).doFilter(
+                request,
+                new MockHttpServletResponse(),
+                new MockFilterChain());
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        assertThat(request.getSession(false)).isNull();
     }
 }

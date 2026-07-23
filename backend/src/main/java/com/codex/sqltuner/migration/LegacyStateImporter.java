@@ -1,5 +1,6 @@
 package com.codex.sqltuner.migration;
 
+import com.codex.sqltuner.config.ModelEndpointPolicy;
 import com.codex.sqltuner.conversation.Conversation;
 import com.codex.sqltuner.conversation.Message;
 import com.codex.sqltuner.skill.SkillVersion;
@@ -13,6 +14,7 @@ import com.codex.sqltuner.tuning.SqlTuningTask;
 import com.codex.sqltuner.tuning.TaskStatus;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -37,6 +39,7 @@ public class LegacyStateImporter {
     private final JdbcJsonSupport jsonSupport;
     private final CryptoSupport cryptoSupport;
     private final PasswordEncoder passwordEncoder;
+    private final ModelEndpointPolicy endpointPolicy;
 
     public LegacyStateImporter(JdbcTemplate jdbcTemplate,
                                PlatformTransactionManager transactionManager,
@@ -44,12 +47,24 @@ public class LegacyStateImporter {
                                JdbcJsonSupport jsonSupport,
                                CryptoSupport cryptoSupport,
                                PasswordEncoder passwordEncoder) {
+        this(jdbcTemplate, transactionManager, objectMapper, jsonSupport, cryptoSupport, passwordEncoder, new ModelEndpointPolicy(false));
+    }
+
+    @Autowired
+    public LegacyStateImporter(JdbcTemplate jdbcTemplate,
+                               PlatformTransactionManager transactionManager,
+                               ObjectMapper objectMapper,
+                               JdbcJsonSupport jsonSupport,
+                               CryptoSupport cryptoSupport,
+                               PasswordEncoder passwordEncoder,
+                               ModelEndpointPolicy endpointPolicy) {
         this.jdbcTemplate = jdbcTemplate;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.objectMapper = objectMapper;
         this.jsonSupport = jsonSupport;
         this.cryptoSupport = cryptoSupport;
         this.passwordEncoder = passwordEncoder;
+        this.endpointPolicy = endpointPolicy;
     }
 
     public LegacyImportResult importFile(Path source,
@@ -222,14 +237,23 @@ public class LegacyStateImporter {
         require(!cryptoSupport.isEncrypted(storedApiKey) || plainApiKey != null,
                 "SQL_TUNER_DATA_KEY 无法解密 legacy 模型 API Key");
         String encryptedApiKey = plainApiKey == null || plainApiKey.isEmpty() ? null : cryptoSupport.encrypt(plainApiKey);
+        String provider = defaultText(model.getProvider(), "mock");
+        String baseUrl = defaultText(model.getBaseUrl(), "");
+        String apiKeyBinding = null;
+        if (encryptedApiKey != null && !"mock".equalsIgnoreCase(provider)) {
+            ModelEndpointPolicy.Endpoint endpoint = endpointPolicy.normalizeBaseUrl(provider, baseUrl);
+            baseUrl = endpoint.getBaseUrl();
+            apiKeyBinding = endpoint.getApiKeyBinding();
+        }
         jdbcTemplate.update("DELETE FROM model_config WHERE id = 1");
         jdbcTemplate.update(
-                "INSERT INTO model_config(id, provider, base_url, model, vision_model, encrypted_api_key, timeout_ms, updated_at) VALUES (1, ?, ?, ?, ?, ?, ?, ?)",
-                defaultText(model.getProvider(), "mock"),
-                defaultText(model.getBaseUrl(), ""),
+                "INSERT INTO model_config(id, provider, base_url, model, vision_model, encrypted_api_key, api_key_binding, timeout_ms, updated_at) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)",
+                provider,
+                baseUrl,
                 defaultText(model.getModel(), "mock"),
                 defaultText(model.getVisionModel(), defaultText(model.getModel(), "mock")),
                 encryptedApiKey,
+                apiKeyBinding,
                 model.getTimeoutMs() == null ? 30000 : model.getTimeoutMs(),
                 Timestamp.valueOf(LocalDateTime.now()));
     }

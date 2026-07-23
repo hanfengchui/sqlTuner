@@ -1,6 +1,7 @@
 package com.codex.sqltuner.storage;
 
 import com.codex.sqltuner.auth.UserRole;
+import com.codex.sqltuner.config.ModelEndpointPolicy;
 import com.codex.sqltuner.llm.LlmProperties;
 import com.codex.sqltuner.skill.SkillRepository;
 import org.slf4j.Logger;
@@ -22,21 +23,25 @@ public class DatabaseBootstrap {
     private final PasswordEncoder passwordEncoder;
     private final LlmProperties llmProperties;
     private final CryptoSupport cryptoSupport;
+    private final ModelEndpointPolicy endpointPolicy;
 
     public DatabaseBootstrap(JdbcTemplate jdbcTemplate,
                              PasswordEncoder passwordEncoder,
                              LlmProperties llmProperties,
-                             CryptoSupport cryptoSupport) {
+                             CryptoSupport cryptoSupport,
+                             ModelEndpointPolicy endpointPolicy) {
         this.jdbcTemplate = jdbcTemplate;
         this.passwordEncoder = passwordEncoder;
         this.llmProperties = llmProperties;
         this.cryptoSupport = cryptoSupport;
+        this.endpointPolicy = endpointPolicy;
     }
 
     @PostConstruct
     public void init() {
         ensureUsers();
         ensureModelConfig();
+        backfillModelApiKeyBinding();
         loadRuntimeModelConfig();
         ensureDefaultSkill();
     }
@@ -73,20 +78,58 @@ public class DatabaseBootstrap {
         }
         LocalDateTime now = LocalDateTime.now();
         String apiKey = llmProperties.getApiKey();
+        String apiKeyBinding = null;
+        String baseUrl = llmProperties.getBaseUrl();
+        if (apiKey != null && !apiKey.trim().isEmpty() && !"mock".equalsIgnoreCase(llmProperties.getProvider())) {
+            ModelEndpointPolicy.Endpoint endpoint = endpointPolicy.normalizeBaseUrl(llmProperties.getProvider(), baseUrl);
+            baseUrl = endpoint.getBaseUrl();
+            apiKeyBinding = endpoint.getApiKeyBinding();
+        }
         jdbcTemplate.update(
-                "INSERT INTO model_config(id, provider, base_url, model, vision_model, encrypted_api_key, timeout_ms, updated_at) VALUES (1, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO model_config(id, provider, base_url, model, vision_model, encrypted_api_key, api_key_binding, timeout_ms, updated_at) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)",
                 llmProperties.getProvider(),
-                llmProperties.getBaseUrl(),
+                baseUrl,
                 llmProperties.getModel(),
                 llmProperties.getVisionModel(),
                 apiKey == null || apiKey.trim().isEmpty() ? null : cryptoSupport.encrypt(apiKey.trim()),
+                apiKeyBinding,
                 llmProperties.getTimeoutMs(),
                 Timestamp.valueOf(now));
     }
 
+    private void backfillModelApiKeyBinding() {
+        jdbcTemplate.query(
+                "SELECT id, provider, base_url, encrypted_api_key, api_key_binding FROM model_config WHERE encrypted_api_key IS NOT NULL AND TRIM(encrypted_api_key) <> ''",
+                rs -> {
+                    String binding = rs.getString("api_key_binding");
+                    if (binding != null && !binding.trim().isEmpty()) {
+                        return;
+                    }
+                    String provider = rs.getString("provider");
+                    String baseUrl = rs.getString("base_url");
+                    if ("mock".equalsIgnoreCase(provider)) {
+                        return;
+                    }
+                    try {
+                        ModelEndpointPolicy.Endpoint endpoint = endpointPolicy.normalizeBaseUrl(provider, baseUrl);
+                        jdbcTemplate.update(
+                                "UPDATE model_config SET base_url = ?, api_key_binding = ?, updated_at = ? WHERE id = ? AND (api_key_binding IS NULL OR TRIM(api_key_binding) = '')",
+                                endpoint.getBaseUrl(),
+                                endpoint.getApiKeyBinding(),
+                                Timestamp.valueOf(LocalDateTime.now()),
+                                rs.getLong("id"));
+                        log.info("databaseBootstrap result 结果: 已补齐模型 API Key 绑定, provider: {}, hostBinding: {}",
+                                provider, endpoint.getApiKeyBinding());
+                    } catch (RuntimeException e) {
+                        log.warn("databaseBootstrap result 结果: 模型 API Key 绑定补齐失败，运行期不会加载该 key, provider: {}, reason: {}",
+                                provider, e.getMessage());
+                    }
+                });
+    }
+
     private void loadRuntimeModelConfig() {
         ModelConfigRecord record = jdbcTemplate.queryForObject(
-                "SELECT provider, base_url, model, vision_model, encrypted_api_key, timeout_ms FROM model_config WHERE id = 1",
+                "SELECT provider, base_url, model, vision_model, encrypted_api_key, api_key_binding, timeout_ms FROM model_config WHERE id = 1",
                 (rs, rowNum) -> {
                     ModelConfigRecord value = new ModelConfigRecord(
                             rs.getString("provider"),
@@ -99,7 +142,10 @@ public class DatabaseBootstrap {
                     if (storedKey != null && cryptoSupport.isEncrypted(storedKey) && decrypted == null) {
                         throw new IllegalStateException("SQL_TUNER_DATA_KEY 无法解密数据库中的模型 API Key");
                     }
-                    value.setApiKey(decrypted);
+                    value.setApiKeyBinding(rs.getString("api_key_binding"));
+                    if (decrypted != null && !decrypted.trim().isEmpty() && apiKeyBindingMatches(value)) {
+                        value.setApiKey(decrypted);
+                    }
                     return value;
                 });
         llmProperties.apply(record);
@@ -129,5 +175,16 @@ public class DatabaseBootstrap {
                 + "- 优先基于确定性规则、EXPLAIN、索引信息给建议。\n"
                 + "- 信息不足时输出缺失信息，不生成确定性 DDL。\n"
                 + "- 输出必须是 JSON 对象，并引用已有证据。\n";
+    }
+
+    private boolean apiKeyBindingMatches(ModelConfigRecord record) {
+        if (record.getApiKeyBinding() == null || record.getApiKeyBinding().trim().isEmpty()) {
+            return false;
+        }
+        if ("mock".equalsIgnoreCase(record.getProvider())) {
+            return true;
+        }
+        ModelEndpointPolicy.Endpoint endpoint = endpointPolicy.normalizeBaseUrl(record.getProvider(), record.getBaseUrl());
+        return endpoint.getApiKeyBinding().equals(record.getApiKeyBinding().trim());
     }
 }

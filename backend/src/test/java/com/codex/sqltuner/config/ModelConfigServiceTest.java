@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ModelConfigServiceTest {
     @Test
@@ -34,6 +35,56 @@ class ModelConfigServiceTest {
         assertThat(ModelConfigView.class.getDeclaredFields())
                 .extracting("name")
                 .doesNotContain("apiKey");
+        assertThat(jdbcTemplate.queryForObject("SELECT api_key_binding FROM model_config WHERE id = 1", String.class))
+                .isEqualTo("dashscope@dashscope.aliyuncs.com");
+    }
+
+    @Test
+    void baseUrlHostChangeRequiresANewApiKey() {
+        LlmProperties properties = new LlmProperties();
+        ObjectMapper objectMapper = objectMapper();
+        JdbcTemplate jdbcTemplate = JdbcTestSupport.jdbcTemplate();
+        ModelConfigService service = service(jdbcTemplate, properties, objectMapper);
+        ModelConfigUpdateRequest initial = new ModelConfigUpdateRequest();
+        initial.setProvider("dashscope");
+        initial.setBaseUrl("https://dashscope.aliyuncs.com/compatible-mode/v1");
+        initial.setModel("qwen-plus");
+        initial.setApiKey("demo-secret-key");
+        service.update(initial);
+
+        ModelConfigUpdateRequest hostChange = new ModelConfigUpdateRequest();
+        hostChange.setBaseUrl("https://gateway.example.com/v1");
+
+        assertThatThrownBy(() -> service.update(hostChange))
+                .hasMessageContaining("必须重新填写模型 API Key");
+    }
+
+    @Test
+    void modelCatalogDoesNotForwardStoredKeyToDifferentRequestedHost() {
+        LlmProperties properties = new LlmProperties();
+        ObjectMapper objectMapper = objectMapper();
+        JdbcTemplate jdbcTemplate = JdbcTestSupport.jdbcTemplate();
+        RecordingCatalogClient catalogClient = new RecordingCatalogClient();
+        ModelConfigService service = new ModelConfigService(
+                jdbcTemplate,
+                properties,
+                new ConfigurableLlmClient(properties, objectMapper),
+                new CryptoSupport(),
+                catalogClient,
+                new ModelEndpointPolicy(false));
+        ModelConfigUpdateRequest initial = new ModelConfigUpdateRequest();
+        initial.setProvider("dashscope");
+        initial.setBaseUrl("https://dashscope.aliyuncs.com/compatible-mode/v1");
+        initial.setModel("qwen-plus");
+        initial.setApiKey("demo-secret-key");
+        service.update(initial);
+
+        ModelCatalogRequest request = new ModelCatalogRequest();
+        request.setBaseUrl("https://gateway.example.com/v1");
+
+        assertThatThrownBy(() -> service.discoverModels(request))
+                .hasMessageContaining("必须重新填写模型 API Key");
+        assertThat(catalogClient.lastApiKey).isNull();
     }
 
     @Test
@@ -86,5 +137,15 @@ class ModelConfigServiceTest {
         objectMapper.findAndRegisterModules();
         objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         return objectMapper;
+    }
+
+    private static class RecordingCatalogClient implements ModelCatalogClient {
+        private String lastApiKey;
+
+        @Override
+        public ModelCatalogView discover(String baseUrl, String apiKey, int timeoutMs) {
+            this.lastApiKey = apiKey;
+            return new ModelCatalogView(baseUrl + "/models", java.util.Arrays.asList("model-a"));
+        }
     }
 }
