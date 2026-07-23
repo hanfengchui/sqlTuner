@@ -304,17 +304,26 @@ public class TuningHarnessService {
         }
 
         String supplementalContext = hasText(submittedText)
-                ? "本轮用户补充（作为待核验背景）:\n" + submittedText.trim()
+                ? "本轮用户补充（作为待核验背景）:\n" + abbreviate(submittedText.trim(), CURRENT_SUPPLEMENT_MAX_CHARS)
                 : "本轮用户仅补充了执行计划截图";
         String parserWarnings = supplemental != null && !supplemental.getWarnings().isEmpty()
                 ? "文本补充解析提示: " + supplemental.getWarnings()
                 : null;
-        request.setBusinessContext(joinNonEmpty(
-                previousTask.getBusinessContext(),
-                request.getBusinessContext(),
-                supplemental == null ? null : supplemental.getPriorAnalysisText(),
+        String snapshot = conversationRepository.getContextSnapshot(previousTask.getConversationId());
+        if (!hasText(snapshot)) {
+            snapshot = buildConversationContextSnapshot(previousTask);
+        }
+        String currentSupplement = abbreviateUtf8(joinNonEmpty(
+                hasText(request.getBusinessContext()) ? "本轮业务补充:\n" + request.getBusinessContext() : null,
+                supplemental == null || !hasText(supplemental.getPriorAnalysisText())
+                        ? null
+                        : "本轮已有分析文本:\n" + supplemental.getPriorAnalysisText(),
                 parserWarnings,
-                supplementalContext));
+                supplementalContext), CURRENT_SUPPLEMENT_MAX_CHARS);
+        request.setBusinessContext(abbreviateUtf8(joinNonEmpty(
+                hasText(snapshot) ? "会话上下文快照（确定性摘要）:\n" + snapshot : null,
+                hasText(currentSupplement) ? "本轮补充（待核验）:\n" + currentSupplement : null),
+                CONTEXT_SNAPSHOT_MAX_CHARS + CURRENT_SUPPLEMENT_MAX_CHARS));
     }
 
     private void normalizePastedReport(CreateTuningTaskRequest request) {
@@ -476,7 +485,8 @@ public class TuningHarnessService {
         task.setLeaseUntil(null);
         addArtifact(task, "resultAssemble", "结构化结果组装完成", result.getSummary());
         conversationRepository.addMessage(task.getConversationId(), MessageRole.ASSISTANT, result.getSummary(), task.getId());
-        taskRepository.update(task);
+        conversationRepository.updateContextSnapshot(task.getConversationId(), buildConversationContextSnapshot(task));
+        persistWorkerTask(task, expectedLeaseOwner, expectedAttemptCount);
         eventBroker.publish(task);
         log.info("runHarness result 结果: taskId: {}, status: {}, findings: {}, mockModel: {}",
                 task.getId(), task.getStatus(), result.getFindings().size(), result.isMockModel());
@@ -850,12 +860,13 @@ public class TuningHarnessService {
     }
 
     private String recentConversationContext(SqlTuningTask task) {
-        List<Message> messages = conversationRepository.listMessages(task.getConversationId());
+        // 只取当前输入前的两轮对话，不能随着会话增长反复读取、拼接完整历史。
+        List<Message> messages = conversationRepository.listMessagesBefore(task.getConversationId(), null, 5);
         if (messages.isEmpty()) {
             return "未提供";
         }
         StringBuilder builder = new StringBuilder();
-        int start = Math.max(0, messages.size() - 8);
+        int start = Math.max(0, messages.size() - 5);
         for (int i = start; i < messages.size(); i++) {
             Message message = messages.get(i);
             // 当前任务的用户输入已在主输入区提供，避免重复放大 prompt。
@@ -863,10 +874,129 @@ public class TuningHarnessService {
                 continue;
             }
             builder.append(message.getRole() == MessageRole.USER ? "用户: " : "助手: ")
-                    .append(abbreviate(message.getContent(), 500))
+                    .append(abbreviate(message.getContent(), 1000))
                     .append("\n");
         }
-        return builder.length() == 0 ? "未提供" : builder.toString();
+        return builder.length() == 0 ? "未提供" : abbreviateUtf8(builder.toString(), RECENT_CONTEXT_MAX_CHARS);
+    }
+
+    /**
+     * 只从结构化输入和已通过校验的结果中构造会话状态，不额外调用模型，也不复制原始对话全文。
+     */
+    private String buildConversationContextSnapshot(SqlTuningTask task) {
+        if (task == null) {
+            return "";
+        }
+        StringBuilder snapshot = new StringBuilder();
+        snapshot.append("最新事实:\n");
+        appendSnapshotLine(snapshot, "方言", firstNonEmpty(task.getDbDialect(), "未提供"));
+        if (hasText(task.getObVersion())) {
+            appendSnapshotLine(snapshot, "OceanBase 版本", abbreviateUtf8(task.getObVersion(), 512));
+        }
+        appendSnapshotLine(snapshot, "已提供证据", providedEvidenceSummary(task));
+        appendSnapshotLineIfPresent(snapshot, "运行指标", task.getRuntimeMetricsText(), 1536);
+        appendSnapshotLineIfPresent(snapshot, "表统计", task.getTableStatsText(), 1536);
+        appendSnapshotLineIfPresent(snapshot, "计划截图事实", task.getPlanImageFacts(), 1536);
+
+        TuningResult result = task.getResult();
+        if (result != null) {
+            snapshot.append("\n最新结论:\n");
+            appendSnapshotLine(snapshot, "结果", firstNonEmpty(result.getOutcome(), "未提供"));
+            appendSnapshotLineIfPresent(snapshot, "摘要", result.getSummary(), 1536);
+            if (result.getDiagnoses() != null) {
+                for (Diagnosis diagnosis : result.getDiagnoses()) {
+                    if (diagnosis == null || !hasText(diagnosis.getTitle())) {
+                        continue;
+                    }
+                    String conclusion = firstNonEmpty(diagnosis.getImpact(), diagnosis.getPrecondition());
+                    appendSnapshotLine(snapshot,
+                            "诊断" + (hasText(diagnosis.getSeverity()) ? "[" + diagnosis.getSeverity() + "]" : ""),
+                            diagnosis.getTitle() + (hasText(conclusion) ? ": " + conclusion : ""),
+                            768);
+                }
+            }
+            if (result.getIndexCandidates() != null) {
+                for (IndexCandidate candidate : result.getIndexCandidates()) {
+                    if (candidate == null || !hasText(candidate.getTableName())) {
+                        continue;
+                    }
+                    appendSnapshotLine(snapshot, "索引方向",
+                            candidate.getTableName() + "(" + candidate.getColumnOrder() + ")"
+                                    + (hasText(candidate.getBenefit()) ? ": " + candidate.getBenefit() : ""),
+                            768);
+                }
+            }
+
+            snapshot.append("\n待验证或补充:\n");
+            if (result.getValidationPlan() != null) {
+                for (ValidationStep step : result.getValidationPlan()) {
+                    if (step != null && hasText(step.getAction())) {
+                        appendSnapshotLine(snapshot, "验证", step.getAction()
+                                + (hasText(step.getExpectedSignal()) ? ": " + step.getExpectedSignal() : ""), 768);
+                    }
+                }
+            }
+            appendSnapshotValues(snapshot, "待补充", result.getMissingInformation(), 768);
+            if (result.getContextAssessment() != null) {
+                appendSnapshotValues(snapshot, "待补充", result.getContextAssessment().getMissingInformation(), 768);
+            }
+        }
+
+        if (hasText(task.getBusinessInvariants())) {
+            snapshot.append("\n业务约束:\n");
+            appendSnapshotLine(snapshot, "约束", task.getBusinessInvariants(), 1536);
+        }
+        return abbreviateUtf8(snapshot.toString(), CONTEXT_SNAPSHOT_MAX_CHARS);
+    }
+
+    private String providedEvidenceSummary(SqlTuningTask task) {
+        List<String> provided = new ArrayList<String>();
+        if (hasText(task.getSchemaText())) {
+            provided.add("表结构");
+        }
+        if (hasText(task.getIndexText())) {
+            provided.add("当前索引");
+        }
+        if (hasText(task.getExplainText())) {
+            provided.add("文本 EXPLAIN");
+        }
+        if (hasText(task.getTableStatsText())) {
+            provided.add("表统计");
+        }
+        if (hasText(task.getRuntimeMetricsText())) {
+            provided.add("运行指标");
+        }
+        if (hasText(task.getPlanImageFacts())) {
+            provided.add("计划截图");
+        }
+        return provided.isEmpty() ? "仅 SQL" : joinNonEmpty(provided.toArray(new String[provided.size()])).replace("\n\n", "、");
+    }
+
+    private void appendSnapshotValues(StringBuilder snapshot, String label, List<String> values, int maxBytes) {
+        if (values == null) {
+            return;
+        }
+        for (String value : values) {
+            appendSnapshotLine(snapshot, label, value, maxBytes);
+        }
+    }
+
+    private void appendSnapshotLineIfPresent(StringBuilder snapshot, String label, String value, int maxBytes) {
+        if (hasText(value)) {
+            appendSnapshotLine(snapshot, label, value, maxBytes);
+        }
+    }
+
+    private void appendSnapshotLine(StringBuilder snapshot, String label, String value) {
+        appendSnapshotLine(snapshot, label, value, 768);
+    }
+
+    private void appendSnapshotLine(StringBuilder snapshot, String label, String value, int maxBytes) {
+        if (!hasText(value)) {
+            return;
+        }
+        snapshot.append("- ").append(label).append(": ")
+                .append(abbreviateUtf8(value, maxBytes)).append("\n");
     }
 
     private TuningResult parseValidateReviewAndRepairOnce(SqlTuningTask task,
@@ -1319,6 +1449,31 @@ public class TuningHarnessService {
         return normalized.substring(0, maxLength) + "...";
     }
 
+    private String abbreviateUtf8(String value, int maxBytes) {
+        if (value == null || maxBytes <= 0) {
+            return "";
+        }
+        String normalized = value.replace('\r', ' ').trim();
+        if (normalized.getBytes(StandardCharsets.UTF_8).length <= maxBytes) {
+            return normalized;
+        }
+        final String suffix = "...";
+        int remaining = Math.max(0, maxBytes - suffix.getBytes(StandardCharsets.UTF_8).length);
+        int end = 0;
+        int used = 0;
+        while (end < normalized.length()) {
+            int codePoint = normalized.codePointAt(end);
+            String codePointText = new String(Character.toChars(codePoint));
+            int bytes = codePointText.getBytes(StandardCharsets.UTF_8).length;
+            if (used + bytes > remaining) {
+                break;
+            }
+            used += bytes;
+            end += Character.charCount(codePoint);
+        }
+        return normalized.substring(0, end) + suffix;
+    }
+
     private String firstText(JsonNode node, String... names) {
         for (String name : names) {
             JsonNode value = node.path(name);
@@ -1391,4 +1546,5 @@ public class TuningHarnessService {
     private boolean hasText(String value) {
         return value != null && !value.trim().isEmpty();
     }
+
 }

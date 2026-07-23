@@ -15,6 +15,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ConversationRetentionTest {
     @Test
@@ -31,6 +32,7 @@ class ConversationRetentionTest {
         assertCount(jdbc, "messages", 0);
         assertCount(jdbc, "tuning_tasks", 0);
         assertCount(jdbc, "task_artifacts", 0);
+        assertCount(jdbc, "task_stage_results", 0);
         assertCount(jdbc, "task_input_images", 0);
     }
 
@@ -46,6 +48,19 @@ class ConversationRetentionTest {
         assertThat(deleted).isZero();
         assertCount(jdbc, "conversations", 2);
         assertCount(jdbc, "tuning_tasks", 2);
+    }
+
+    @Test
+    void manualDeleteRejectsConversationWithActiveTask() {
+        JdbcTemplate jdbc = JdbcTestSupport.jdbcTemplate();
+        ConversationRepository repository = new ConversationRepository(jdbc);
+        seedConversation(jdbc, 251L, LocalDateTime.now(), "RECEIVED");
+
+        assertThatThrownBy(() -> repository.deleteForUser(251L, 1L))
+                .isInstanceOf(com.codex.sqltuner.common.ApiException.class)
+                .hasMessageContaining("任务结束后才能删除");
+        assertCount(jdbc, "conversations", 1);
+        assertCount(jdbc, "tuning_tasks", 1);
     }
 
     @Test
@@ -96,11 +111,36 @@ class ConversationRetentionTest {
         }
     }
 
+    @Test
+    void pagesConversationSearchByUpdatedAtCursorWithoutSkippingOlderMatches() {
+        JdbcTemplate jdbc = JdbcTestSupport.jdbcTemplate();
+        ConversationRepository repository = new ConversationRepository(jdbc);
+        LocalDateTime base = LocalDateTime.now().minusHours(4);
+        seedConversation(jdbc, 401L, base.plusMinutes(5), "DONE", "订单-最早");
+        seedConversation(jdbc, 402L, base.plusMinutes(30), "DONE", "库存-不匹配");
+        seedConversation(jdbc, 403L, base.plusHours(2), "DONE", "订单-最新");
+        seedConversation(jdbc, 404L, base.plusHours(1), "DONE", "订单-中间");
+
+        ConversationPage first = repository.pageByUser(1L, "订单", null, 2);
+        assertThat(first.getItems()).extracting("id").containsExactly(403L, 404L);
+        assertThat(first.isHasMore()).isTrue();
+        assertThat(first.getNextBefore()).isEqualTo(404L);
+
+        ConversationPage second = repository.pageByUser(1L, "订单", first.getNextBefore(), 2);
+        assertThat(second.getItems()).extracting("id").containsExactly(401L);
+        assertThat(second.isHasMore()).isFalse();
+        assertThat(second.getNextBefore()).isNull();
+    }
+
     private void seedConversation(JdbcTemplate jdbc, Long id, LocalDateTime updatedAt, String status) {
+        seedConversation(jdbc, id, updatedAt, status, "retention-" + id);
+    }
+
+    private void seedConversation(JdbcTemplate jdbc, Long id, LocalDateTime updatedAt, String status, String title) {
         Timestamp timestamp = Timestamp.valueOf(updatedAt);
         jdbc.update(
                 "INSERT INTO conversations(id, user_id, title, created_at, updated_at) VALUES (?, 1, ?, ?, ?)",
-                id, "retention-" + id, timestamp, timestamp);
+                id, title, timestamp, timestamp);
         jdbc.update(
                 "INSERT INTO tuning_tasks(id, user_id, conversation_id, status, status_message, task_json, "
                         + "attempt_count, version, created_at, updated_at) VALUES (?, 1, ?, ?, '', '{}', 0, 0, ?, ?)",
@@ -112,6 +152,10 @@ class ConversationRetentionTest {
                 "INSERT INTO task_artifacts(task_id, node_name, summary, payload_json, created_at) "
                         + "VALUES (?, 'test', 'test', '{}', ?)",
                 id, timestamp);
+        jdbc.update(
+                "INSERT INTO task_stage_results(task_id, stage_name, input_sha256, provider, model, content, elapsed_ms, mock, created_at) "
+                        + "VALUES (?, 'analysis', ?, 'mock', 'mock', '{}', 1, FALSE, ?)",
+                id, repeat('b', 64), timestamp);
         jdbc.update(
                 "INSERT INTO task_input_images(task_id, image_order, file_name, media_type, byte_size, sha256, image_data, created_at) "
                         + "VALUES (?, 0, 'plan.png', 'image/png', 1, ?, ?, ?)",

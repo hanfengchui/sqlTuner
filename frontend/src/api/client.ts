@@ -1,6 +1,8 @@
 import type {
   ApiResponse,
   Conversation,
+  ConversationPage,
+  ConversationTimeline,
   HarnessArtifact,
   Message,
   ModelConfigView,
@@ -87,6 +89,17 @@ export const api = {
   conversations() {
     return request<Conversation[]>("/api/conversations");
   },
+  conversationPage(search?: string, before?: number, limit = 50) {
+    const params = new URLSearchParams();
+    if (search?.trim()) {
+      params.set("q", search.trim());
+    }
+    if (before !== undefined) {
+      params.set("before", String(before));
+    }
+    params.set("limit", String(limit));
+    return request<ConversationPage>(`/api/conversations/page?${params.toString()}`);
+  },
   createConversation(title?: string) {
     return request<Conversation>("/api/conversations", {
       method: "POST",
@@ -95,6 +108,14 @@ export const api = {
   },
   messages(conversationId: number) {
     return request<Message[]>(`/api/conversations/${conversationId}/messages`);
+  },
+  timeline(conversationId: number, before?: number, limit = 50) {
+    const params = new URLSearchParams();
+    if (before !== undefined) {
+      params.set("before", String(before));
+    }
+    params.set("limit", String(limit));
+    return request<ConversationTimeline>(`/api/conversations/${conversationId}/timeline?${params.toString()}`);
   },
   deleteConversation(conversationId: number) {
     return request<boolean>(`/api/conversations/${conversationId}`, {

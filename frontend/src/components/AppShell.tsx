@@ -11,13 +11,16 @@ import {
   Sun,
   Trash2
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Theme } from "../lib/useTheme";
 import type { Conversation, UserView } from "../types/api";
 
 interface AppShellProps {
   user: UserView;
   conversations: Conversation[];
+  conversationQuery?: string;
+  hasMoreConversations?: boolean;
+  loadingMoreConversations?: boolean;
   activeConversationId?: number;
   currentRoute: string;
   theme: Theme;
@@ -25,6 +28,8 @@ interface AppShellProps {
   onNewConversation: () => void;
   onSelectConversation: (id: number) => void;
   onDeleteConversation: (id: number) => void;
+  onSearchConversations?: (query: string) => void;
+  onLoadMoreConversations?: () => void;
   onNavigate: (route: string) => void;
   onLogout: () => void;
   children: React.ReactNode;
@@ -80,11 +85,19 @@ function CommandRail({
   onNewConversation,
   onSelectConversation,
   onDeleteConversation,
+  conversationQuery = "",
+  hasMoreConversations = false,
+  loadingMoreConversations = false,
+  onSearchConversations,
+  onLoadMoreConversations,
   onLogout
 }: AppShellProps) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(conversationQuery);
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    setQuery(conversationQuery);
+  }, [conversationQuery]);
   const filtered = useMemo(() => {
     const text = query.trim().toLowerCase();
     if (!text) {
@@ -110,6 +123,7 @@ function CommandRail({
             if (searchOpen) {
               setSearchOpen(false);
               setQuery("");
+              onSearchConversations?.("");
               return;
             }
             setSearchOpen(true);
@@ -133,11 +147,16 @@ function CommandRail({
             <input
               ref={searchInputRef}
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                const nextQuery = event.target.value;
+                setQuery(nextQuery);
+                onSearchConversations?.(nextQuery);
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Escape") {
                   setSearchOpen(false);
                   setQuery("");
+                  onSearchConversations?.("");
                 }
               }}
               placeholder="搜索会话标题"
@@ -158,6 +177,11 @@ function CommandRail({
             </button>
           </div>
         ))}
+        {hasMoreConversations && !query && (
+          <button className="conversation-load-more" type="button" onClick={onLoadMoreConversations} disabled={loadingMoreConversations}>
+            {loadingMoreConversations ? "正在加载" : "加载更多"}
+          </button>
+        )}
         {filtered.length === 0 && <p className="empty-note">{query ? "没有匹配的会话" : "还没有调优记录"}</p>}
       </div>
 

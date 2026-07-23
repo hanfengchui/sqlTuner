@@ -437,6 +437,57 @@ input:focus, select:focus, textarea:focus, .search-input:focus-within { border-c
   scroll-behavior: smooth;
 }
 
+.conversation-history-control {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 2px;
+}
+
+.conversation-history-control button {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  line-height: 28px;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.conversation-history-control button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.conversation-history-control button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.conversation-load-more {
+  align-self: flex-start;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  line-height: 28px;
+  min-height: 28px;
+  padding: 0 8px;
+}
+
+.conversation-load-more:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+.conversation-load-more:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .conversation-empty {
   min-height: 0;
   border: 0;

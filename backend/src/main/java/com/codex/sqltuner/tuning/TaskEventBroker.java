@@ -2,6 +2,7 @@ package com.codex.sqltuner.tuning;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -19,6 +20,17 @@ public class TaskEventBroker {
     private final Map<Long, CopyOnWriteArrayList<SseEmitter>> emitters = new ConcurrentHashMap<Long, CopyOnWriteArrayList<SseEmitter>>();
     private final Map<Long, TaskStreamChunk> latestStreams = new ConcurrentHashMap<Long, TaskStreamChunk>();
     private final Map<Long, AtomicLong> streamSequences = new ConcurrentHashMap<Long, AtomicLong>();
+    private final TuningTaskRepository taskRepository;
+
+    // 仅供同包轻量测试使用；生产 Bean 始终通过注入仓储构造，避免 SSE 泄露运行期字段。
+    TaskEventBroker() {
+        this.taskRepository = null;
+    }
+
+    @Autowired
+    public TaskEventBroker(TuningTaskRepository taskRepository) {
+        this.taskRepository = taskRepository;
+    }
 
     public SseEmitter subscribe(Long taskId, SqlTuningTask snapshot) {
         final SseEmitter emitter = new SseEmitter(10 * 60 * 1000L);
@@ -40,7 +52,7 @@ public class TaskEventBroker {
                 remove(taskId, emitter);
             }
         });
-        send(emitter, "snapshot", snapshot, snapshot.getVersion());
+        send(emitter, "snapshot", publicView(snapshot), snapshot.getVersion());
         TaskStreamChunk stream = latestStreams.get(taskId);
         if (stream != null) {
             send(emitter, "model-stream", stream, null);
@@ -65,7 +77,7 @@ public class TaskEventBroker {
             return;
         }
         for (SseEmitter emitter : list) {
-            if (!send(emitter, event, task, task.getVersion())) {
+            if (!send(emitter, event, publicView(task), task.getVersion())) {
                 remove(task.getId(), emitter);
             }
         }
@@ -143,6 +155,10 @@ public class TaskEventBroker {
             emitter.complete();
             return false;
         }
+    }
+
+    private SqlTuningTask publicView(SqlTuningTask task) {
+        return taskRepository == null ? task : taskRepository.publicView(task);
     }
 
     private void remove(Long taskId, SseEmitter emitter) {

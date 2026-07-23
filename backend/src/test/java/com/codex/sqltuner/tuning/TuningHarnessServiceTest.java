@@ -55,6 +55,8 @@ class TuningHarnessServiceTest {
         runMigration("db/migration/V1__mysql_state_queue_security.sql");
         runMigration("db/migration/V2__queue_admission_lock.sql");
         runMigration("db/migration/V3__task_input_images.sql");
+        runMigration("db/migration/V6__task_stage_results.sql");
+        runMigration("db/migration/V7__conversation_timeline_context.sql");
         jdbcTemplate.update("INSERT INTO users(id, username, display_name, password_hash, role, enabled) VALUES (1, 'tester', 'Tester', 'x', 'ADMIN', TRUE)");
         jdbcTemplate.update("INSERT INTO skill_versions(name, version, content, enabled, updated_at) VALUES (?, 1, ?, TRUE, CURRENT_TIMESTAMP)",
                 SkillRepository.DEFAULT_SKILL_NAME, "优先基于证据输出可验证建议。");
@@ -555,6 +557,31 @@ class TuningHarnessServiceTest {
     }
 
     @Test
+    void longConversationUsesBoundedDeterministicSnapshotInsteadOfAccumulatingHistory() {
+        TuningHarnessService service = service();
+        CreateTuningTaskRequest initial = sqlOnlyRequest();
+        initial.setRuntimeMetricsText("平均耗时: 2008ms\n逻辑读: 2400000");
+        initial.setTableStatsText("orders: 12000000 行");
+        initial.setBusinessInvariants("结果必须保持租户隔离和 created_at 倒序。");
+        SqlTuningTask current = service.createTask(1L, initial);
+        service.run(current);
+
+        for (int i = 1; i <= 50; i++) {
+            CreateTuningTaskRequest followUp = followUp(current,
+                    "第 " + i + " 轮补充：业务仍要求结果集、租户隔离和排序语义不变。");
+            current = service.createTask(1L, followUp);
+            assertThat(utf8Length(current.getBusinessContext())).isLessThanOrEqualTo(12 * 1024);
+            service.run(current);
+        }
+
+        String snapshot = conversationRepository.getContextSnapshot(current.getConversationId());
+        assertThat(utf8Length(snapshot)).isLessThanOrEqualTo(8 * 1024);
+        assertThat(snapshot).contains("最新事实", "最新结论", "待验证或补充", "业务约束", "租户隔离");
+        assertThat(current.getOriginalSql()).isEqualTo(initial.getSqlText());
+        assertThat(conversationRepository.listMessages(current.getConversationId())).hasSize(102);
+    }
+
+    @Test
     void nonSqlMessageWithoutConversationSqlIsStillRejected() {
         TuningHarnessService service = service();
         CreateTuningTaskRequest request = new CreateTuningTaskRequest();
@@ -690,6 +717,29 @@ class TuningHarnessServiceTest {
         assertThat(task.getArtifacts()).extracting("nodeName").contains("planImageVisionUnavailable");
         assertThat(task.getResult().getContextAssessment().getAvailableEvidence()).doesNotContain("E_PLAN_IMAGE");
         assertThat(client.callCount()).isEqualTo(2);
+    }
+
+    @Test
+    void retryReusesPersistedAnalyzeAndRepairStagesWithoutAnotherModelCall() {
+        RecordingLlmClient client = new RecordingLlmClient("not-json", "still-not-json");
+        TuningHarnessService service = service(client);
+        SqlTuningTask task = service.createTask(1L, sqlOnlyRequest());
+
+        assertThatThrownBy(() -> service.run(task))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(client.callCount()).isEqualTo(2);
+
+        SqlTuningTask retry = taskRepository.get(task.getId());
+        retry.setStatus(TaskStatus.QUEUED);
+        retry.setStatusMessage("retry");
+        taskRepository.update(retry);
+
+        assertThatThrownBy(() -> service.run(retry))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(client.callCount()).isEqualTo(2);
+        Integer savedStages = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM task_stage_results WHERE task_id = ?", Integer.class, task.getId());
+        assertThat(savedStages).isEqualTo(2);
     }
 
     @Test
@@ -1109,6 +1159,10 @@ class TuningHarnessServiceTest {
 
     private String pngDataUrl() {
         return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    }
+
+    private int utf8Length(String value) {
+        return value == null ? 0 : value.getBytes(StandardCharsets.UTF_8).length;
     }
 
     private void runMigration(String path) throws Exception {

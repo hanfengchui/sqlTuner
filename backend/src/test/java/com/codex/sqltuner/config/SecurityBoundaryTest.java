@@ -162,6 +162,7 @@ class SecurityBoundaryTest {
         when(tuningHarnessService.createTask(eq(2L), any(CreateTuningTaskRequest.class), eq("user-security-test")))
                 .thenReturn(task);
         when(tuningTaskRepository.queuePosition(task)).thenReturn(1);
+        when(tuningTaskRepository.publicView(task)).thenReturn(task);
 
         CsrfRequest csrf = csrfRequest();
         mockMvc.perform(post("/api/tuning/tasks")

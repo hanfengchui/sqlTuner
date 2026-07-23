@@ -52,7 +52,7 @@ public class TuningController {
         SqlTuningTask existing = taskRepository.findByIdempotencyKey(user.getId(), idempotencyKey);
         if (existing != null) {
             existing.setQueuePosition(taskRepository.queuePosition(existing));
-            return ApiResponse.ok(existing);
+            return ApiResponse.ok(taskRepository.publicView(existing));
         }
         if (taskRepository.queuedCount() >= queueProperties.getMaxQueuedGlobal()
                 || taskRepository.queuedCountForUser(user.getId()) >= queueProperties.getMaxQueuedPerUser()) {
@@ -60,7 +60,7 @@ public class TuningController {
         }
         SqlTuningTask task = harnessService.createTask(user.getId(), request, idempotencyKey);
         task.setQueuePosition(taskRepository.queuePosition(task));
-        return ApiResponse.ok(task);
+        return ApiResponse.ok(taskRepository.publicView(task));
     }
 
     @GetMapping("/{id}")
@@ -69,7 +69,7 @@ public class TuningController {
         log.info("getTuningTask param 入参: userId: {}, taskId: {}", user.getId(), id);
         SqlTuningTask task = taskRepository.getForUser(id, user.getId());
         task.setQueuePosition(taskRepository.queuePosition(task));
-        return ApiResponse.ok(task);
+        return ApiResponse.ok(taskRepository.publicView(task));
     }
 
     @GetMapping(value = "/{id}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)

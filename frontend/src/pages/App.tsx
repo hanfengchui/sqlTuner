@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { AdminRoute } from "../components/AdminRoute";
@@ -15,12 +15,17 @@ export function App() {
   const [user, setUser] = useState<UserView | null>(null);
   const [loadingUser, setLoadingUser] = useState(true);
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [conversationQuery, setConversationQuery] = useState("");
+  const [nextConversationBefore, setNextConversationBefore] = useState<number | undefined>();
+  const [hasMoreConversations, setHasMoreConversations] = useState(false);
+  const [loadingMoreConversations, setLoadingMoreConversations] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState<number | undefined>();
   const [activeTask, setActiveTask] = useState<SqlTuningTask | undefined>();
   const [returnTo, setReturnTo] = useState("/chat");
   const { theme, toggle: toggleTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
+  const conversationRequestVersion = useRef(0);
 
   useEffect(() => {
     let alive = true;
@@ -50,21 +55,49 @@ export function App() {
 
   useEffect(() => {
     if (user) {
-      refreshConversations();
+      void refreshConversations("");
     }
   }, [user]);
 
-  async function refreshConversations() {
-    const list = await api.conversations();
-    setConversations(list);
-    if (!activeConversationId && list.length > 0) {
-      setActiveConversationId(list[0].id);
+  async function refreshConversations(search = conversationQuery) {
+    const requestVersion = ++conversationRequestVersion.current;
+    const page = await api.conversationPage(search);
+    if (requestVersion !== conversationRequestVersion.current) {
+      return page.items;
     }
+    setConversations(page.items);
+    setNextConversationBefore(page.nextBefore);
+    setHasMoreConversations(page.hasMore);
+    if (!activeConversationId && page.items.length > 0) {
+      setActiveConversationId(page.items[0].id);
+    }
+    return page.items;
+  }
+
+  async function loadMoreConversations() {
+    if (!hasMoreConversations || !nextConversationBefore || loadingMoreConversations) {
+      return;
+    }
+    setLoadingMoreConversations(true);
+    try {
+      const page = await api.conversationPage(conversationQuery, nextConversationBefore);
+      setConversations((current) => mergeConversations(current, page.items));
+      setNextConversationBefore(page.nextBefore);
+      setHasMoreConversations(page.hasMore);
+    } finally {
+      setLoadingMoreConversations(false);
+    }
+  }
+
+  function searchConversations(query: string) {
+    setConversationQuery(query);
+    void refreshConversations(query);
   }
 
   async function newConversation() {
     const conversation = await api.createConversation("新建调优");
-    await refreshConversations();
+    setConversationQuery("");
+    await refreshConversations("");
     setActiveConversationId(conversation.id);
     setActiveTask(undefined);
     navigate("/chat");
@@ -72,8 +105,7 @@ export function App() {
 
   async function deleteConversation(id: number) {
     await api.deleteConversation(id);
-    const list = await api.conversations();
-    setConversations(list);
+    const list = await refreshConversations(conversationQuery);
     if (activeConversationId === id) {
       setActiveTask(undefined);
       setActiveConversationId(list[0]?.id);
@@ -84,6 +116,7 @@ export function App() {
   async function logout() {
     await api.logout();
     setUser(null);
+    setConversationQuery("");
     setActiveConversationId(undefined);
     setActiveTask(undefined);
     navigate("/login");
@@ -108,6 +141,9 @@ export function App() {
     <AppShell
       user={user}
       conversations={conversations}
+      conversationQuery={conversationQuery}
+      hasMoreConversations={hasMoreConversations}
+      loadingMoreConversations={loadingMoreConversations}
       activeConversationId={activeConversationId}
       currentRoute={location.pathname}
       theme={theme}
@@ -119,6 +155,8 @@ export function App() {
         navigate("/chat");
       }}
       onDeleteConversation={deleteConversation}
+      onSearchConversations={searchConversations}
+      onLoadMoreConversations={loadMoreConversations}
       onNavigate={navigate}
       onLogout={logout}
     >
@@ -133,7 +171,7 @@ export function App() {
               onTaskCreated={(task) => {
                 setActiveTask(task);
                 setActiveConversationId(task.conversationId);
-                refreshConversations();
+                void refreshConversations();
               }}
             />
           }
@@ -166,4 +204,9 @@ export function App() {
       </Routes>
     </AppShell>
   );
+}
+
+function mergeConversations(current: Conversation[], incoming: Conversation[]) {
+  const known = new Set(current.map((conversation) => conversation.id));
+  return [...current, ...incoming.filter((conversation) => !known.has(conversation.id))];
 }

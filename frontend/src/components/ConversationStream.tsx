@@ -9,9 +9,20 @@ interface ConversationStreamProps {
   tasksById: Record<number, SqlTuningTask>;
   pendingTask?: SqlTuningTask;
   pendingStream?: ModelStreamUpdate;
+  hasMoreHistory?: boolean;
+  loadingHistory?: boolean;
+  onLoadMoreHistory?: () => void;
 }
 
-export function ConversationStream({ messages, tasksById, pendingTask, pendingStream }: ConversationStreamProps) {
+export function ConversationStream({
+  messages,
+  tasksById,
+  pendingTask,
+  pendingStream,
+  hasMoreHistory = false,
+  loadingHistory = false,
+  onLoadMoreHistory
+}: ConversationStreamProps) {
   const streamRef = useRef<HTMLElement>(null);
   const stickToLatestRef = useRef(true);
   const hasAssistantForPending = pendingTask
@@ -61,6 +72,13 @@ export function ConversationStream({ messages, tasksById, pendingTask, pendingSt
         stickToLatestRef.current = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 72;
       }}
     >
+      {hasMoreHistory && (
+        <div className="conversation-history-control">
+          <button type="button" onClick={onLoadMoreHistory} disabled={loadingHistory}>
+            {loadingHistory ? "正在加载更早消息" : "加载更早消息"}
+          </button>
+        </div>
+      )}
       {messages.map((message) => (
         <ConversationBubble
           key={message.id}

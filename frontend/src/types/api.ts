@@ -28,6 +28,12 @@ export interface Conversation {
   updatedAt: string;
 }
 
+export interface ConversationPage {
+  items: Conversation[];
+  nextBefore?: number;
+  hasMore: boolean;
+}
+
 export interface Message {
   id: number;
   conversationId: number;
@@ -35,6 +41,17 @@ export interface Message {
   content: string;
   taskId?: number;
   createdAt: string;
+}
+
+export interface ConversationTimelineItem {
+  message: Message;
+  task?: SqlTuningTask | null;
+}
+
+export interface ConversationTimeline {
+  items: ConversationTimelineItem[];
+  nextBefore?: number;
+  hasMore: boolean;
 }
 
 export type TaskStatus =

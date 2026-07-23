@@ -90,7 +90,7 @@ public class TuningTaskRepository {
                 ps.setString(3, idempotencyKey == null || idempotencyKey.trim().isEmpty() ? null : idempotencyKey.trim());
                 ps.setString(4, task.getStatus().name());
                 ps.setString(5, task.getStatusMessage());
-                ps.setString(6, jsonSupport.write(task));
+                ps.setString(6, taskJson(task));
                 ps.setTimestamp(7, toTimestamp(now));
                 ps.setTimestamp(8, toTimestamp(now));
                 ps.setTimestamp(9, toTimestamp(now));
@@ -128,6 +128,47 @@ public class TuningTaskRepository {
         return tasks.isEmpty() ? null : tasks.get(0);
     }
 
+    public List<SqlTuningTask> listLatestTerminalForConversation(Long conversationId, Long userId, int limit) {
+        if (limit <= 0) {
+            return Collections.emptyList();
+        }
+        return jdbcTemplate.query(
+                "SELECT * FROM tuning_tasks WHERE conversation_id = ? AND user_id = ? "
+                        + "AND status IN ('DONE', 'FAILED') ORDER BY created_at DESC, id DESC LIMIT ?",
+                mapper(), conversationId, userId, limit);
+    }
+
+    public Map<Long, SqlTuningTask> findLeanByIdsForUser(Set<Long> taskIds, Long userId) {
+        if (taskIds == null || taskIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        StringBuilder placeholders = new StringBuilder();
+        List<Object> args = new ArrayList<Object>();
+        args.add(userId);
+        for (Long taskId : taskIds) {
+            if (taskId == null) {
+                continue;
+            }
+            if (placeholders.length() > 0) {
+                placeholders.append(",");
+            }
+            placeholders.append("?");
+            args.add(taskId);
+        }
+        if (placeholders.length() == 0) {
+            return Collections.emptyMap();
+        }
+        List<SqlTuningTask> tasks = jdbcTemplate.query(
+                "SELECT * FROM tuning_tasks WHERE user_id = ? AND id IN (" + placeholders + ")",
+                mapper(), args.toArray());
+        Map<Long, SqlTuningTask> result = new LinkedHashMap<Long, SqlTuningTask>();
+        for (SqlTuningTask task : tasks) {
+            scrubPublicTask(task);
+            result.put(task.getId(), task);
+        }
+        return result;
+    }
+
     public SqlTuningTask findByIdempotencyKey(Long userId, String idempotencyKey) {
         if (idempotencyKey == null || idempotencyKey.trim().isEmpty()) {
             return null;
@@ -159,7 +200,7 @@ public class TuningTaskRepository {
                         + "WHERE id = ? AND version = ?",
                 task.getStatus().name(),
                 task.getStatusMessage(),
-                jsonSupport.write(task),
+                taskJson(task),
                 task.getLeaseOwner(),
                 toTimestamp(task.getLeaseUntil()),
                 toTimestamp(task.getLeaseUntil()),

@@ -1,5 +1,6 @@
 package com.codex.sqltuner.conversation;
 
+import com.codex.sqltuner.common.ApiException;
 import com.codex.sqltuner.common.NotFoundException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -13,7 +14,11 @@ import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 @Repository
 public class ConversationRepository {
@@ -31,12 +36,13 @@ public class ConversationRepository {
             @Override
             public PreparedStatement createPreparedStatement(Connection con) throws java.sql.SQLException {
                 PreparedStatement ps = con.prepareStatement(
-                        "INSERT INTO conversations(user_id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                "INSERT INTO conversations(user_id, title, context_snapshot, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
                         Statement.RETURN_GENERATED_KEYS);
                 ps.setLong(1, userId);
                 ps.setString(2, safeTitle);
-                ps.setTimestamp(3, Timestamp.valueOf(now));
+                ps.setString(3, null);
                 ps.setTimestamp(4, Timestamp.valueOf(now));
+                ps.setTimestamp(5, Timestamp.valueOf(now));
                 return ps;
             }
         }, keyHolder);
@@ -51,6 +57,51 @@ public class ConversationRepository {
         return jdbcTemplate.query(
                 "SELECT * FROM conversations WHERE user_id = ? ORDER BY updated_at DESC",
                 conversationMapper(), userId);
+    }
+
+    public List<Conversation> listByUser(Long userId, String search, Long before, int limit) {
+        int safeLimit = Math.max(1, Math.min(limit <= 0 ? 50 : limit, 100));
+        List<Object> args = new ArrayList<Object>();
+        StringBuilder sql = new StringBuilder("SELECT * FROM conversations WHERE user_id = ?");
+        args.add(userId);
+        if (search != null && !search.trim().isEmpty()) {
+            sql.append(" AND LOWER(title) LIKE ?");
+            args.add("%" + search.trim().toLowerCase() + "%");
+        }
+        if (before != null) {
+            sql.append(" AND id < ?");
+            args.add(before);
+        }
+        sql.append(" ORDER BY updated_at DESC, id DESC LIMIT ?");
+        args.add(safeLimit);
+        return jdbcTemplate.query(sql.toString(), conversationMapper(), args.toArray());
+    }
+
+    public ConversationPage pageByUser(Long userId, String search, Long before, int limit) {
+        int safeLimit = Math.max(1, Math.min(limit <= 0 ? 50 : limit, 100));
+        Conversation cursor = before == null ? null : findCursor(userId, before);
+        List<Object> args = new ArrayList<Object>();
+        StringBuilder sql = new StringBuilder("SELECT * FROM conversations WHERE user_id = ?");
+        args.add(userId);
+        if (search != null && !search.trim().isEmpty()) {
+            sql.append(" AND LOWER(title) LIKE ?");
+            args.add("%" + search.trim().toLowerCase() + "%");
+        }
+        if (cursor != null) {
+            sql.append(" AND (updated_at < ? OR (updated_at = ? AND id < ?))");
+            args.add(Timestamp.valueOf(cursor.getUpdatedAt()));
+            args.add(Timestamp.valueOf(cursor.getUpdatedAt()));
+            args.add(cursor.getId());
+        }
+        sql.append(" ORDER BY updated_at DESC, id DESC LIMIT ?");
+        args.add(safeLimit + 1);
+        List<Conversation> rows = jdbcTemplate.query(sql.toString(), conversationMapper(), args.toArray());
+        boolean hasMore = rows.size() > safeLimit;
+        if (hasMore) {
+            rows = new ArrayList<Conversation>(rows.subList(0, safeLimit));
+        }
+        Long nextBefore = hasMore && !rows.isEmpty() ? rows.get(rows.size() - 1).getId() : null;
+        return new ConversationPage(rows, nextBefore, hasMore);
     }
 
     public Conversation getForUser(Long id, Long userId) {
@@ -116,9 +167,61 @@ public class ConversationRepository {
                 messageMapper(), conversationId);
     }
 
+    public List<Message> listMessagesBefore(final Long conversationId, Long before, int limit) {
+        Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM conversations WHERE id = ?", Integer.class, conversationId);
+        if (count == null || count == 0) {
+            throw new NotFoundException("会话不存在");
+        }
+        int safeLimit = Math.max(1, Math.min(limit <= 0 ? 50 : limit, 100));
+        List<Object> args = new ArrayList<Object>();
+        StringBuilder sql = new StringBuilder("SELECT * FROM messages WHERE conversation_id = ?");
+        args.add(conversationId);
+        if (before != null) {
+            sql.append(" AND id < ?");
+            args.add(before);
+        }
+        sql.append(" ORDER BY id DESC LIMIT ?");
+        args.add(safeLimit + 1);
+        List<Message> rows = jdbcTemplate.query(sql.toString(), messageMapper(), args.toArray());
+        Collections.reverse(rows);
+        return rows;
+    }
+
+    public String getContextSnapshot(Long conversationId) {
+        List<String> rows = jdbcTemplate.queryForList(
+                "SELECT context_snapshot FROM conversations WHERE id = ?",
+                String.class, conversationId);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    public void updateContextSnapshot(Long conversationId, String snapshot) {
+        jdbcTemplate.update(
+                "UPDATE conversations SET context_snapshot = ? WHERE id = ?",
+                snapshot, conversationId);
+    }
+
+    public Set<Long> taskIds(List<Message> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return Collections.emptySet();
+        }
+        Set<Long> ids = new LinkedHashSet<Long>();
+        for (Message message : messages) {
+            if (message.getTaskId() != null) {
+                ids.add(message.getTaskId());
+            }
+        }
+        return ids;
+    }
+
     @Transactional
     public void deleteForUser(final Long id, final Long userId) {
-        Conversation conversation = getForUser(id, userId);
+        Conversation conversation = getForUserForUpdate(id, userId);
+        Integer activeTasks = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM tuning_tasks WHERE conversation_id = ? AND status NOT IN ('DONE', 'FAILED')",
+                Integer.class, conversation.getId());
+        if (activeTasks != null && activeTasks > 0) {
+            throw new ApiException(409, "CONVERSATION_BUSY", "会话中仍有调优任务运行或排队，任务结束后才能删除");
+        }
         deleteConversation(conversation.getId());
     }
 
@@ -148,8 +251,8 @@ public class ConversationRepository {
         if (conversations != null) {
             for (Conversation conversation : conversations) {
                 jdbcTemplate.update(
-                        "INSERT INTO conversations(id, user_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-                        conversation.getId(), conversation.getUserId(), conversation.getTitle(),
+                        "INSERT INTO conversations(id, user_id, title, context_snapshot, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                        conversation.getId(), conversation.getUserId(), conversation.getTitle(), conversation.getContextSnapshot(),
                         Timestamp.valueOf(conversation.getCreatedAt()), Timestamp.valueOf(conversation.getUpdatedAt()));
             }
         }
@@ -173,10 +276,18 @@ public class ConversationRepository {
 
     private void deleteConversation(Long conversationId) {
         jdbcTemplate.update("DELETE FROM task_input_images WHERE task_id IN (SELECT id FROM tuning_tasks WHERE conversation_id = ?)", conversationId);
+        jdbcTemplate.update("DELETE FROM task_stage_results WHERE task_id IN (SELECT id FROM tuning_tasks WHERE conversation_id = ?)", conversationId);
         jdbcTemplate.update("DELETE FROM task_artifacts WHERE task_id IN (SELECT id FROM tuning_tasks WHERE conversation_id = ?)", conversationId);
         jdbcTemplate.update("DELETE FROM tuning_tasks WHERE conversation_id = ?", conversationId);
         jdbcTemplate.update("DELETE FROM messages WHERE conversation_id = ?", conversationId);
         jdbcTemplate.update("DELETE FROM conversations WHERE id = ?", conversationId);
+    }
+
+    private Conversation findCursor(Long userId, Long before) {
+        List<Conversation> rows = jdbcTemplate.query(
+                "SELECT * FROM conversations WHERE user_id = ? AND id = ?",
+                conversationMapper(), userId, before);
+        return rows.isEmpty() ? null : rows.get(0);
     }
 
     private RowMapper<Conversation> conversationMapper() {
@@ -187,6 +298,7 @@ public class ConversationRepository {
                         rs.getLong("id"),
                         rs.getLong("user_id"),
                         rs.getString("title"),
+                        rs.getString("context_snapshot"),
                         rs.getTimestamp("created_at").toLocalDateTime(),
                         rs.getTimestamp("updated_at").toLocalDateTime());
             }
