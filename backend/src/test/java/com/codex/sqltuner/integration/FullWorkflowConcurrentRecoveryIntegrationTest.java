@@ -2,7 +2,6 @@ package com.codex.sqltuner.integration;
 
 import com.codex.sqltuner.config.ModelEndpointPolicy;
 import com.codex.sqltuner.config.QueueProperties;
-import com.codex.sqltuner.config.ReadinessService;
 import com.codex.sqltuner.llm.LlmClient;
 import com.codex.sqltuner.llm.LlmRequest;
 import com.codex.sqltuner.llm.LlmResponse;
@@ -106,9 +105,6 @@ class FullWorkflowConcurrentRecoveryIntegrationTest {
 
     @MockBean
     private DatabaseBootstrap databaseBootstrap;
-
-    @MockBean
-    private ReadinessService readinessService;
 
     @MockBean
     private TuningQueueWorker scheduledQueueWorker;

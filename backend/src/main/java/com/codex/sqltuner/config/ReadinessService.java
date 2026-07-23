@@ -1,6 +1,7 @@
 package com.codex.sqltuner.config;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -11,6 +12,7 @@ public class ReadinessService {
     private final long cacheMs;
     private volatile CachedStatus cached;
 
+    @Autowired
     public ReadinessService(JdbcTemplate jdbcTemplate, SchedulerHealth schedulerHealth) {
         this(jdbcTemplate, schedulerHealth, DEFAULT_CACHE_MS);
     }
