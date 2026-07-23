@@ -11,6 +11,7 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Connection;
@@ -282,7 +283,7 @@ public class TuningTaskRepository {
         return count == null ? 0 : count;
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public SqlTuningTask claimNext(String leaseOwner) {
         if (runningCount() >= queueProperties.getMaxRunning()) {
             return null;

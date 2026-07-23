@@ -98,13 +98,23 @@ class MySqlPersistenceIT {
         TuningTaskRepository tasks = taskRepository(database.jdbc);
         createQueuedTask(database.jdbc, tasks, "first", "claim-a");
         createQueuedTask(database.jdbc, tasks, "second", "claim-b");
-        TransactionTemplate lockTransaction = transaction(database.dataSource, TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        Long firstId = database.jdbc.queryForObject(
+                "SELECT id FROM tuning_tasks WHERE status = 'QUEUED' ORDER BY queued_at ASC, id ASC LIMIT 1",
+                Long.class);
+        TransactionTemplate lockTransaction = transaction(
+                database.dataSource,
+                TransactionDefinition.PROPAGATION_REQUIRES_NEW,
+                TransactionDefinition.ISOLATION_READ_COMMITTED);
+        TransactionTemplate claimantTransaction = transaction(
+                database.dataSource,
+                TransactionDefinition.PROPAGATION_REQUIRES_NEW,
+                TransactionDefinition.ISOLATION_READ_COMMITTED);
 
         Long lockedId = lockTransaction.execute(status -> {
             Long id = database.jdbc.queryForObject(
-                    "SELECT id FROM tuning_tasks WHERE status = 'QUEUED' ORDER BY queued_at ASC LIMIT 1 FOR UPDATE",
-                    Long.class);
-            SqlTuningTask claimedByWorker = transaction(database.dataSource, TransactionDefinition.PROPAGATION_REQUIRES_NEW)
+                    "SELECT id FROM tuning_tasks WHERE id = ? FOR UPDATE",
+                    Long.class, firstId);
+            SqlTuningTask claimedByWorker = claimantTransaction
                     .execute(inner -> tasks.claimNext("worker-b"));
             assertThat(claimedByWorker).isNotNull();
             assertThat(claimedByWorker.getId()).isNotEqualTo(id);
@@ -261,8 +271,13 @@ class MySqlPersistenceIT {
     }
 
     private TransactionTemplate transaction(DataSource dataSource, int propagationBehavior) {
+        return transaction(dataSource, propagationBehavior, TransactionDefinition.ISOLATION_DEFAULT);
+    }
+
+    private TransactionTemplate transaction(DataSource dataSource, int propagationBehavior, int isolationLevel) {
         DefaultTransactionDefinition definition = new DefaultTransactionDefinition();
         definition.setPropagationBehavior(propagationBehavior);
+        definition.setIsolationLevel(isolationLevel);
         return new TransactionTemplate(new DataSourceTransactionManager(dataSource), definition);
     }
 
